@@ -1,4 +1,4 @@
-# Finance architecture (Phase 1)
+# Finance architecture (Phase 1, guardrails Phase 2)
 
 ```
 Charge ──(snapshot)──▶ InvoiceItem ─┐
@@ -134,6 +134,34 @@ MYR with 2 decimal places, `NUMERIC(10,2)`, maximum RM 99,999,999.99 (`apps/fina
 reason and is limited to what was paid on that line. It creates a numbered `Refund` and increases
 the invoice's `amount_refunded`. The payment, allocation, invoice lines and receipt are untouched,
 and so is the registration status. The refund is audited.
+
+## Protection of financial history (Phase 2)
+
+History is protected in four layers. Each one stops what the layer above can miss:
+
+| Layer | What it stops |
+|---|---|
+| Admin | Issued invoices, payments, receipts, refunds and allocations cannot be edited or deleted (403). Invoiced or paid charges are read-only except `notes`. A class fee that already produced charges has its amount, class, type, cycle and start date locked. A competition registration's student, event, status and charge are read-only. A charge added in the admin is created by `services.add_charge` (capability check, money validation, audit). |
+| Model | `save()`/`delete()` rules from Phase 1 (frozen issued invoices and lines, immutable receipts, allocations and refunds, locked charges, allowed status transitions). |
+| QuerySet | Bulk `QuerySet.delete()` is refused for charges, invoices, invoice lines, payments, allocations, receipts, receipt voids, refunds and competition registrations. Bulk `update()` is also refused for allocations, receipts, receipt voids and refunds. |
+| PostgreSQL | Triggers from migration `finance/0003_protect_financial_history` reject raw SQL too. Violations raise SQLSTATE 23001 (`restrict_violation`), reported by Django as `IntegrityError`. |
+
+The PostgreSQL triggers:
+* `DELETE` is refused on all eight finance history tables.
+* Allocations cannot be updated at all.
+* The content columns of receipts, receipt voids and refunds are frozen. A user foreign key may still
+  become NULL if that user is deleted.
+* A payment's amount, family, number, method, dates and references are frozen; `VOIDED` never goes
+  back to `VALID`.
+* Once an invoice is issued, its number, family, kind, dates and amounts are frozen, and `VOID` is
+  final. Only the balance columns stay writable, for the payment service, and check constraints
+  keep them consistent.
+* Lines of an issued invoice: only `amount_paid` and `is_active` may change.
+* A charge on an active issued invoice: student, type, description and amounts are frozen.
+
+SQLite (development fallback only) has no triggers; the admin, model and queryset layers still
+apply there. Corrections are made the way Phase 1 defines: void and re-issue, void a payment, or
+record an exceptional refund. There are still no credit notes or partial invoice corrections.
 
 ## Permissions (finance)
 

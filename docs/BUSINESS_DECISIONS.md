@@ -34,3 +34,10 @@ yet**; the current code may still behave differently until that phase lands.
     medical details (`[CHANGED]`) and other highly sensitive data must be masked in audit logs.
 11. **Stack**: stay on Django + Django REST Framework + PostgreSQL. Front-end / mobile apps come
     later against the API. Hosting provider not decided yet.
+
+**Phase 2 (admin guardrails)** added no new business rules. It makes the Django admin enforce the
+rules above in the same way as the API. See the "Django admin" section of `ROLES_AND_PERMISSIONS.md`
+and "Protection of financial history" in `FINANCE_ARCHITECTURE.md`. Admin paths that belong to
+later phases stay as they are for now: session coach and session status editing (P4),
+attendance edits without a reason or the 48-hour window (P5), and competition results for
+unconfirmed registrations (P7).

@@ -16,6 +16,20 @@ from .money import CURRENCY, ZERO, round_money
 money = {"max_digits": 10, "decimal_places": 2}
 
 
+class FinancialHistoryQuerySet(models.QuerySet):
+    """Bulk deletes bypass ``Model.delete()``; financial history is never deleted."""
+
+    def delete(self):
+        raise PermissionDenied(f"{self.model._meta.verbose_name_plural} are financial history and cannot be deleted.")
+
+
+class ImmutableQuerySet(FinancialHistoryQuerySet):
+    """For records that never change once written (receipts, allocations, refunds)."""
+
+    def update(self, **kwargs):
+        raise PermissionDenied(f"{self.model._meta.verbose_name_plural} are immutable.")
+
+
 class FeeType(models.TextChoices):
     TUITION = "TUITION", "Tuition / class fee"
     REGISTRATION = "REGISTRATION", "Registration fee"
@@ -172,6 +186,8 @@ class Charge(AuditedModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = FinancialHistoryQuerySet.as_manager()
+
     class Meta:
         ordering = ["-created_at", "-id"]
         constraints = [
@@ -207,6 +223,8 @@ class Charge(AuditedModel):
         return self.amount - self.amount_paid
 
     def clean(self):
+        if None in (self.quantity, self.unit_amount, self.discount):
+            return  # field-level errors are reported by the form
         if self.compute_amount() < ZERO:
             raise ValidationError("Discount cannot exceed the charge amount.")
 
@@ -330,6 +348,8 @@ class Invoice(AuditedModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = FinancialHistoryQuerySet.as_manager()
+
     class Meta:
         ordering = ["-created_at", "-id"]
         constraints = [
@@ -392,6 +412,8 @@ class InvoiceItem(AuditedModel):
     position = models.PositiveIntegerField(default=0)
 
     MUTABLE_AFTER_ISSUE = {"amount_paid", "is_active"}
+
+    objects = FinancialHistoryQuerySet.as_manager()
 
     class Meta:
         ordering = ["invoice", "position", "id"]
@@ -469,6 +491,8 @@ class Payment(AuditedModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = FinancialHistoryQuerySet.as_manager()
+
     class Meta:
         ordering = ["-received_at", "-id"]
         constraints = [models.CheckConstraint(condition=Q(amount__gt=0), name="payment_amount_positive")]
@@ -505,6 +529,8 @@ class PaymentAllocation(AuditedModel):
     charge = models.ForeignKey(Charge, on_delete=models.PROTECT, related_name="allocations")
     amount = models.DecimalField(**money, validators=[MinValueValidator(Decimal("0.01"))])
 
+    objects = ImmutableQuerySet.as_manager()
+
     class Meta:
         ordering = ["payment", "id"]
         constraints = [
@@ -536,6 +562,8 @@ class Receipt(models.Model):
     total = models.DecimalField(**money)
     content = models.JSONField(help_text="Frozen receipt content as issued.")
 
+    objects = ImmutableQuerySet.as_manager()
+
     class Meta:
         ordering = ["-issued_at", "-id"]
 
@@ -560,6 +588,8 @@ class ReceiptVoid(models.Model):
     voided_at = models.DateTimeField(auto_now_add=True)
     voided_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     reason = models.TextField()
+
+    objects = ImmutableQuerySet.as_manager()
 
     def __str__(self):
         return f"VOID {self.receipt.number}"
@@ -591,6 +621,8 @@ class Refund(AuditedModel):
     refunded_at = models.DateTimeField(default=timezone.now)
     recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ImmutableQuerySet.as_manager()
 
     class Meta:
         ordering = ["-refunded_at", "-id"]

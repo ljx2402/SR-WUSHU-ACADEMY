@@ -50,6 +50,13 @@ class ClassFeeAdmin(admin.ModelAdmin):
     list_filter = ("training_class__category", "billing_cycle", "fee_type", "training_class")
     search_fields = ("training_class__name", "name")
     autocomplete_fields = ("training_class",)
+    BILLED_LOCKED = ("training_class", "fee_type", "billing_cycle", "amount", "effective_from")
+
+    def get_readonly_fields(self, request, obj=None):
+        # Once billed, the rate itself is history: end it and add a new fee instead.
+        if obj is not None and obj.charges.exists():
+            return self.BILLED_LOCKED
+        return ()
 
 
 @admin.register(StudentFeePlan)
@@ -107,9 +114,18 @@ class ChargeAdmin(admin.ModelAdmin):
                 self.message_user(request, f"{family.name}: {_errors(exc)}", messages.ERROR)
 
     def save_model(self, request, obj, form, change):
-        if not change:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
+        if change:
+            return super().save_model(request, obj, form, change)
+        # New charges go through the finance service (money rules, audit reason, capability).
+        data = form.cleaned_data
+        created = services.add_charge(
+            data["student"], data["fee_type"], data["description"], data["unit_amount"], request.user,
+            quantity=data["quantity"], discount=data["discount"], due_date=data.get("due_date"),
+            charge_item=data.get("charge_item"), notes=data.get("notes", ""),
+            period_start=data.get("period_start"), period_end=data.get("period_end"),
+        )
+        obj.pk = created.pk
+        obj.refresh_from_db()
 
     def has_delete_permission(self, request, obj=None):
         return False
@@ -169,6 +185,9 @@ class InvoiceAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False  # drafted from charges (Charges → action, or "Generate drafts")
+
+    def has_change_permission(self, request, obj=None):
+        return False  # issued history is frozen; issue / void through the dedicated actions
 
     def has_delete_permission(self, request, obj=None):
         return False

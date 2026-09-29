@@ -140,15 +140,15 @@ def generate_tuition_charges(year, month, actor=None, due_date=None):
 
 @transaction.atomic
 def add_charge(student, fee_type, description, unit_amount, actor=None, quantity=1, discount=ZERO,
-               due_date=None, charge_item=None, notes=""):
+               due_date=None, charge_item=None, notes="", period_start=None, period_end=None):
     """One-off charge: registration, uniform, weapons, competition, other."""
     require(actor, Cap.FINANCE_CHARGES_MANAGE)
     return _create_charge(student, fee_type, description, unit_amount, actor, quantity, discount, due_date,
-                          charge_item, notes)
+                          charge_item, notes, period_start, period_end)
 
 
 def _create_charge(student, fee_type, description, unit_amount, actor=None, quantity=1, discount=ZERO,
-                   due_date=None, charge_item=None, notes=""):
+                   due_date=None, charge_item=None, notes="", period_start=None, period_end=None):
     """Create a charge without a capability check; callers are responsible
     (e.g. competition registration, which has its own capability)."""
     if isinstance(quantity, float):
@@ -167,6 +167,8 @@ def _create_charge(student, fee_type, description, unit_amount, actor=None, quan
             due_date=due_date,
             charge_item=charge_item,
             notes=notes,
+            period_start=period_start,
+            period_end=period_end,
             created_by=actor,
         )
 

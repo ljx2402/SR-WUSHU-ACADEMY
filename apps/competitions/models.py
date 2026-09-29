@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -107,8 +107,15 @@ class CompetitionEvent(AuditedModel):
         return errors
 
 
+class RegistrationQuerySet(models.QuerySet):
+    def delete(self):
+        raise PermissionDenied("Competition registrations cannot be deleted; withdraw or reject them instead.")
+
+
 class CompetitionRegistration(AuditedModel):
     audit_category = AuditCategory.COMPETITION
+
+    objects = RegistrationQuerySet.as_manager()
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Awaiting payment"
@@ -140,6 +147,9 @@ class CompetitionRegistration(AuditedModel):
 
     def __str__(self):
         return f"{self.student.full_name} – {self.event}"
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Competition registrations cannot be deleted; withdraw or reject them instead.")
 
 
 class CompetitionResult(AuditedModel):

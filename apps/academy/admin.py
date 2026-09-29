@@ -160,6 +160,29 @@ class StudentAdmin(NoDeleteMixin, admin.ModelAdmin):
     inlines = [GuardianshipInline, EnrollmentInline, StudentAccountInline, StatusHistoryInline]
     date_hierarchy = "join_date"
 
+    # Finance staff have a student *directory*, not student records: they may use
+    # the student picker on the charge form (it returns only "name [student no.]"),
+    # searching by name or number, and nothing else.
+    DIRECTORY_AUTOCOMPLETE_SOURCES = {("finance", "charge", "student")}
+    DIRECTORY_SEARCH_FIELDS = ("student_no", "full_name", "chinese_name")
+
+    def _is_directory_autocomplete(self, request):
+        match = getattr(request, "resolver_match", None)
+        source = (request.GET.get("app_label"), request.GET.get("model_name"), request.GET.get("field_name"))
+        return (match is not None and match.url_name == "autocomplete"
+                and source in self.DIRECTORY_AUTOCOMPLETE_SOURCES
+                and can(request.user, Cap.STUDENTS_VIEW_DIRECTORY))
+
+    def has_view_permission(self, request, obj=None):
+        if super().has_view_permission(request, obj):
+            return True
+        return obj is None and self._is_directory_autocomplete(request)
+
+    def get_search_fields(self, request):
+        if not can(request.user, Cap.STUDENTS_VIEW_ALL):
+            return self.DIRECTORY_SEARCH_FIELDS
+        return super().get_search_fields(request)
+
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
         initial.setdefault("student_no", services.next_student_no())

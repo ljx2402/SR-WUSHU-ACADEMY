@@ -147,3 +147,30 @@ bumped, so existing sessions must sign in again. The migration is reversible (st
 | `substitute.revoke` | ✅ | ✅ |  |  |  |  |
 | `users.manage` | ✅ |  |  |  |  |  |
 | `users.view` | ✅ |  |  |  |  |  |
+
+## Django admin (Phase 2 guardrails)
+
+The admin is a second entry point to the same rules, not a separate permission system. It adds no
+permission of its own: every page, action and custom view asks `can()` (through
+`CapabilityBackend` and the model admins), and money-changing work goes through the same services
+as the API.
+
+* **Who reaches it.** Only staff roles (`SUPER_ADMIN`, `ADMIN`, `FINANCE_ADMIN`) have `is_staff`,
+  which is derived from roles. `COACH`, `PARENT`, `STUDENT`, and combinations of those, are sent to
+  the admin login page for every URL and POST. A combination that includes a staff role (for
+  example `FINANCE_ADMIN` + `COACH`) gets exactly the staff role's admin.
+* **Server-side, not just menus.** A missing capability returns 403 for a direct URL and for a
+  crafted POST, including admin actions not offered to that role (for example, `ADMIN` posting
+  `invoice_charges`, `FINANCE_ADMIN` posting payroll `finalize` or competition `confirm`). An unknown
+  object id in a custom view returns 404. All POSTs need a CSRF token.
+* **Finance student picker.** `FINANCE_ADMIN` has no student records (`students.view_directory`
+  only). On the charge form they can use the student autocomplete, which returns only
+  "name [student no.]" and searches only by name and number. That exception covers the
+  `finance.charge.student` picker only; the student list and pages stay 403.
+* **Read-only documents.** Issued invoices, payments, receipts and refunds cannot be changed through
+  the admin change form (403 on POST); they change only through the issue, void, record-payment and
+  refund views, which call the services. See `FINANCE_ARCHITECTURE.md` for the database-level
+  protection.
+
+Tests: `apps/accounts/tests/test_admin_access.py` (every role and combination, by direct URL and
+POST) and `apps/finance/tests/test_admin_guardrails.py` (tampered forms, bulk deletes, raw SQL).

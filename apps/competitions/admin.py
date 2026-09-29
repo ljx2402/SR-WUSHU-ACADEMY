@@ -60,6 +60,12 @@ class CompetitionRegistrationAdmin(admin.ModelAdmin):
     inlines = [ResultInline]
     actions = ["confirm", "reject"]
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj is not None:
+            # The fee charge and invoice belong to this student and event; they cannot be re-pointed.
+            return self.readonly_fields + ("event", "student")
+        return self.readonly_fields
+
     def save_model(self, request, obj, form, change):
         if change:
             return super().save_model(request, obj, form, change)
