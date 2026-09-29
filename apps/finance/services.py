@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.academy.models import Enrollment, Student
+from apps.accounts.capabilities import Cap, require
 from apps.attendance.models import AttendanceRecord, AttendanceStatus
 from apps.audit.context import audit_context
 from apps.audit.models import AuditCategory, AuditLog
@@ -60,6 +61,7 @@ def fee_for_enrollment(enrollment, on_date):
 def generate_tuition_charges(year, month, actor=None, due_date=None):
     """Bill monthly and per-session class fees for one month. Safe to re-run:
     a period already billed for an enrollment is skipped."""
+    require(actor, Cap.FINANCE_CHARGES_MANAGE)
     first, last = month_bounds(year, month)
     due_day = settings.ACADEMY.get("DEFAULT_TUITION_DUE_DAY", 7)
     due_date = due_date or datetime.date(year, month, min(due_day, last.day))
@@ -123,6 +125,7 @@ def generate_tuition_charges(year, month, actor=None, due_date=None):
 def add_charge(student, fee_type, description, unit_amount, actor=None, quantity=1, discount=ZERO,
                due_date=None, charge_item=None, notes=""):
     """One-off charge: registration, uniform, weapons, competition, other."""
+    require(actor, Cap.FINANCE_CHARGES_MANAGE)
     with audit_context(actor, "Charge added"):
         return Charge.objects.create(
             student=student,
@@ -140,6 +143,7 @@ def add_charge(student, fee_type, description, unit_amount, actor=None, quantity
 
 @transaction.atomic
 def cancel_charge(charge, reason, actor=None, waive=False):
+    require(actor, Cap.FINANCE_CHARGES_MANAGE)
     if not reason:
         raise ValidationError("A reason is required.")
     if charge.valid_allocations().exists():
@@ -204,6 +208,7 @@ def record_payment(payer_name, amount, method, allocations, actor=None, parent=N
     ``allocations`` is a list of (charge, amount). The allocations must add up
     to the payment amount and may not exceed each charge's outstanding balance.
     """
+    require(actor, Cap.FINANCE_PAYMENTS_RECORD)
     amount = Decimal(amount)
     if not allocations:
         raise ValidationError("Allocate the payment to at least one charge.")
@@ -239,6 +244,7 @@ def record_payment(payer_name, amount, method, allocations, actor=None, parent=N
 
 @transaction.atomic
 def issue_receipt(payment, actor=None):
+    require(actor, Cap.FINANCE_PAYMENTS_RECORD)
     if hasattr(payment, "receipt"):
         return payment.receipt
     issued_at = timezone.now()
@@ -261,6 +267,7 @@ def issue_receipt(payment, actor=None):
 def void_payment(payment, reason, actor=None):
     """Void a payment and its receipt. The receipt itself is never altered;
     a ReceiptVoid record is attached and the charges become payable again."""
+    require(actor, Cap.FINANCE_PAYMENTS_VOID)
     if not reason:
         raise ValidationError("A reason is required to void a payment.")
     if payment.status == Payment.Status.VOIDED:

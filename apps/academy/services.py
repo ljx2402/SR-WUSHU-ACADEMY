@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.accounts.capabilities import Cap, require
 from apps.audit.context import audit_context
 
 from .models import ClassCoach, Enrollment, SessionCoach, Student, TrainingSession
@@ -24,6 +25,7 @@ def generate_sessions(training_class, start, end, actor=None):
     Existing sessions are left untouched, so the function is safe to re-run.
     Current class coaches are attached to each new session as regular coaches.
     """
+    require(actor, Cap.SESSIONS_MANAGE)
     created = []
     schedules = list(training_class.schedules.all())
     with audit_context(actor, "Generated from class timetable"):
@@ -61,6 +63,7 @@ def assign_substitute(session, substitute, replaces=None, actor=None, reason="",
     only, and only inside the access window. The replaced coach's slot is
     marked REPLACED so it is not paid for this session.
     """
+    require(actor, Cap.SUBSTITUTE_ASSIGN)
     if session.status == TrainingSession.Status.CANCELLED:
         raise ValidationError("Cannot assign a substitute to a cancelled session.")
     if replaces is not None and replaces == substitute:
@@ -91,6 +94,7 @@ def assign_substitute(session, substitute, replaces=None, actor=None, reason="",
 
 @transaction.atomic
 def revoke_substitute(slot, actor=None, reason=""):
+    require(actor, Cap.SUBSTITUTE_REVOKE)
     with audit_context(actor, reason or "Substitute access revoked"):
         slot.status = SessionCoach.Status.ABSENT
         slot.access_ends_at = timezone.now()
@@ -104,6 +108,7 @@ def revoke_substitute(slot, actor=None, reason=""):
 
 @transaction.atomic
 def enroll(student, training_class, start_date=None, team=None, coach=None, actor=None):
+    require(actor, Cap.STUDENTS_MANAGE)
     start_date = start_date or timezone.localdate()
     if Enrollment.objects.filter(student=student, training_class=training_class, end_date__isnull=True).exists():
         raise ValidationError(f"{student.full_name} is already in {training_class.name}.")
@@ -119,6 +124,7 @@ def enroll(student, training_class, start_date=None, team=None, coach=None, acto
 
 @transaction.atomic
 def end_enrollment(enrollment, end_date=None, reason="", actor=None):
+    require(actor, Cap.STUDENTS_MANAGE)
     end_date = end_date or timezone.localdate()
     if end_date < enrollment.start_date:
         raise ValidationError("End date cannot be before start date.")
@@ -139,6 +145,7 @@ def transfer(enrollment, new_class, on_date=None, team=None, coach=None, actor=N
 
 @transaction.atomic
 def change_student_status(student, status, reason="", actor=None, effective_date=None):
+    require(actor, Cap.STUDENTS_MANAGE)
     if student.status == status:
         return student
     with audit_context(actor, reason):

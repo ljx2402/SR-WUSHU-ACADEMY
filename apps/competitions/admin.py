@@ -69,13 +69,13 @@ class CompetitionRegistrationAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    @admin.action(description="Confirm selected registrations")
+    @admin.action(description="Confirm selected registrations", permissions=["change"])
     def confirm(self, request, queryset):
         for registration in queryset.filter(status=CompetitionRegistration.Status.PENDING):
             registration.status = CompetitionRegistration.Status.CONFIRMED
             registration.save()
 
-    @admin.action(description="Reject / withdraw selected registrations")
+    @admin.action(description="Reject / withdraw selected registrations", permissions=["change"])
     def reject(self, request, queryset):
         for registration in queryset.exclude(status__in=CompetitionRegistration.INACTIVE):
             services.withdraw(registration, request.user, "Rejected by admin", CompetitionRegistration.Status.REJECTED)

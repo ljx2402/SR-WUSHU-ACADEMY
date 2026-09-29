@@ -1,33 +1,53 @@
-"""Who may see what.
+"""Record-level access: which specific records a user may see.
 
-* Admin: everything.
-* Parent: only their own children (via Guardianship).
-* Coach: classes they are currently assigned to, those classes' sessions and
-  current members.
-* Substitute coach: only the specific session they were assigned to, and only
-  while the access window is open. That gives them the session, its roster and
-  its attendance, and nothing else (no other classes, finance, payroll admin
-  or unrelated parent data).
+RBAC (``apps.accounts.capabilities``) decides whether a user may use a kind of
+action at all. This module decides *which records*, based on capabilities
+plus relationships:
+
+* ``*_all`` capabilities: every record.
+* Coach (COACH role + coach profile): classes they are currently assigned to,
+  those classes' sessions and current members. A substitute coach only gets
+  the specific session they cover while its access window is open; never the
+  class.
+* Parent (PARENT role + parent profile): their own children only.
+* Student (STUDENT role + student account): their own record only.
+
+A user may hold several roles (e.g. COACH + PARENT). Visibility is the union of
+each relationship, but the *level of detail* depends on how the user relates
+to each record; see ``StudentScope.level_for`` and the context-specific
+querysets (``roster_sessions_for``, ``children_for``) used for rosters and
+finance, which never widen through another role.
 """
+
+from dataclasses import dataclass, field
 
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.accounts.models import User
+from apps.accounts.capabilities import Cap, can
 
 from .models import ClassCoach, Enrollment, SessionCoach, Student, TrainingClass, TrainingSession
 
+# --------------------------------------------------------------------------- profiles
 
-def is_admin(user):
-    return bool(user and user.is_authenticated and user.is_academy_admin)
+
+def _active(user):
+    return bool(user and user.is_authenticated and user.is_active)
 
 
 def coach_of(user):
-    return user.coach if user and user.is_authenticated and user.is_active else None
+    return user.coach if _active(user) else None
 
 
 def parent_of(user):
-    return user.parent if user and user.is_authenticated and user.is_active else None
+    return user.parent if _active(user) else None
+
+
+def student_of(user):
+    return user.student if _active(user) else None
+
+
+# --------------------------------------------------------------------------- building blocks
 
 
 def open_substitute_slots(coach, at=None):
@@ -46,67 +66,28 @@ def regular_class_ids(coach, date=None):
     return ClassCoach.objects.active_on(date or timezone.localdate()).filter(coach=coach).values("training_class_id")
 
 
-def classes_for(user):
-    if is_admin(user):
-        return TrainingClass.objects.all()
+def _coach_for(user, capability):
     coach = coach_of(user)
-    if coach:
-        # Substitute access never exposes the class itself, only the session.
-        return TrainingClass.objects.filter(id__in=regular_class_ids(coach))
+    return coach if coach and can(user, capability) else None
+
+
+def _parent_for(user, capability):
     parent = parent_of(user)
-    if parent:
-        return TrainingClass.objects.filter(enrollments__student__guardianships__parent=parent).distinct()
-    return TrainingClass.objects.none()
+    return parent if parent and can(user, capability) else None
 
 
-def sessions_for(user, at=None):
-    if is_admin(user):
-        return TrainingSession.objects.all()
-    coach = coach_of(user)
-    if coach:
-        substitute_sessions = open_substitute_slots(coach, at).values("session_id")
-        return TrainingSession.objects.filter(
-            Q(training_class_id__in=regular_class_ids(coach)) | Q(id__in=substitute_sessions)
-        )
+def _student_for(user, capability):
+    student = student_of(user)
+    return student if student and can(user, capability) else None
+
+
+def children_for(user):
+    """The user's own children. Used for parent-only data (e.g. finance), so it
+    never widens to students the user coaches."""
     parent = parent_of(user)
-    if parent:
-        return TrainingSession.objects.filter(
-            training_class__enrollments__student__guardianships__parent=parent
-        ).distinct()
-    return TrainingSession.objects.none()
-
-
-def students_for(user, at=None):
-    if is_admin(user):
-        return Student.objects.all()
-    coach = coach_of(user)
-    if coach:
-        today = timezone.localdate()
-        regular = Enrollment.objects.active_on(today).filter(training_class_id__in=regular_class_ids(coach))
-        ids = set(regular.values_list("student_id", flat=True))
-        for slot in open_substitute_slots(coach, at).select_related("session"):
-            ids.update(slot.session.roster().values_list("id", flat=True))
-        return Student.objects.filter(id__in=ids)
-    parent = parent_of(user)
-    if parent:
-        return Student.objects.filter(guardianships__parent=parent).distinct()
-    return Student.objects.none()
-
-
-def can_view_session(user, session, at=None):
-    return sessions_for(user, at).filter(pk=session.pk).exists()
-
-
-def can_take_attendance(user, session, at=None):
-    """Admins always; regular class coaches; substitutes only inside their window."""
-    if is_admin(user):
-        return True
-    coach = coach_of(user)
-    if not coach:
-        return False
-    if ClassCoach.objects.active_on(session.date).filter(coach=coach, training_class=session.training_class).exists():
-        return True
-    return open_substitute_slots(coach, at).filter(session=session).exists()
+    if not parent:
+        return Student.objects.none()
+    return Student.objects.filter(guardianships__parent=parent).distinct()
 
 
 def is_parent_of(user, student):
@@ -114,7 +95,159 @@ def is_parent_of(user, student):
     return bool(parent and student.guardianships.filter(parent=parent).exists())
 
 
-def role_of(user):
-    if is_admin(user):
-        return User.Role.ADMIN
-    return getattr(user, "role", None)
+def coach_roster_student_ids(coach, at=None):
+    today = timezone.localdate()
+    ids = set(
+        Enrollment.objects.active_on(today)
+        .filter(training_class_id__in=regular_class_ids(coach))
+        .values_list("student_id", flat=True)
+    )
+    for slot in open_substitute_slots(coach, at).select_related("session"):
+        ids.update(slot.session.roster().values_list("id", flat=True))
+    return ids
+
+
+# --------------------------------------------------------------------------- classes and sessions
+
+
+def classes_for(user):
+    """Classes whose details / timetable the user may see."""
+    if can(user, Cap.CLASSES_VIEW_ALL):
+        return TrainingClass.objects.all()
+    q = Q(pk__in=[])
+    coach = _coach_for(user, Cap.CLASSES_VIEW_ASSIGNED)
+    if coach:
+        # Substitute access never exposes the class itself, only the session.
+        q |= Q(id__in=regular_class_ids(coach))
+    parent = _parent_for(user, Cap.CLASSES_VIEW_OWN_CHILDREN)
+    if parent:
+        q |= Q(enrollments__student__guardianships__parent=parent)
+    student = _student_for(user, Cap.CLASSES_VIEW_SELF)
+    if student:
+        q |= Q(enrollments__student=student)
+    return TrainingClass.objects.filter(q).distinct()
+
+
+def roster_classes_for(user):
+    """Classes whose member list the user may see (never via a parent/student role)."""
+    if can(user, Cap.ROSTER_VIEW_ALL):
+        return TrainingClass.objects.all()
+    coach = _coach_for(user, Cap.ROSTER_VIEW_ASSIGNED)
+    if coach:
+        return TrainingClass.objects.filter(id__in=regular_class_ids(coach))
+    return TrainingClass.objects.none()
+
+
+def sessions_for(user, at=None):
+    """Sessions the user may see as a schedule entry."""
+    if can(user, Cap.SESSIONS_VIEW_ALL):
+        return TrainingSession.objects.all()
+    q = Q(pk__in=[])
+    coach = _coach_for(user, Cap.SESSIONS_VIEW_ASSIGNED)
+    if coach:
+        q |= Q(training_class_id__in=regular_class_ids(coach)) | Q(id__in=open_substitute_slots(coach, at).values("session_id"))
+    parent = _parent_for(user, Cap.SESSIONS_VIEW_OWN_CHILDREN)
+    if parent:
+        q |= Q(training_class__enrollments__student__guardianships__parent=parent)
+    student = _student_for(user, Cap.SESSIONS_VIEW_SELF)
+    if student:
+        q |= Q(training_class__enrollments__student=student)
+    return TrainingSession.objects.filter(q).distinct()
+
+
+def roster_sessions_for(user, at=None):
+    """Sessions whose roster and attendance the user may work with as staff or
+    coach. Being a parent in the class never grants this."""
+    if can(user, (Cap.ROSTER_VIEW_ALL, Cap.ATTENDANCE_VIEW_ALL)):
+        return TrainingSession.objects.all()
+    coach = _coach_for(user, (Cap.ROSTER_VIEW_ASSIGNED, Cap.ATTENDANCE_VIEW_ASSIGNED))
+    if coach:
+        return TrainingSession.objects.filter(
+            Q(training_class_id__in=regular_class_ids(coach)) | Q(id__in=open_substitute_slots(coach, at).values("session_id"))
+        )
+    return TrainingSession.objects.none()
+
+
+def can_view_session(user, session, at=None):
+    return sessions_for(user, at).filter(pk=session.pk).exists()
+
+
+def can_take_attendance(user, session, at=None):
+    """Staff with attendance.take_any; regular class coaches; substitutes only inside their window."""
+    if can(user, Cap.ATTENDANCE_TAKE_ANY):
+        return True
+    coach = _coach_for(user, Cap.ATTENDANCE_TAKE_ASSIGNED)
+    if not coach:
+        return False
+    if ClassCoach.objects.active_on(session.date).filter(coach=coach, training_class=session.training_class).exists():
+        return True
+    return open_substitute_slots(coach, at).filter(session=session).exists()
+
+
+# --------------------------------------------------------------------------- students
+
+FULL = "FULL"            # complete record (academy staff)
+OWN = "OWN"              # own child or own record: personal details, guardians as contacts only
+ROSTER = "ROSTER"        # coach view: training info, medical notes, emergency contacts
+DIRECTORY = "DIRECTORY"  # finance view: names and guardian contacts
+
+
+@dataclass
+class StudentScope:
+    """Which students a user may see, and at what level of detail.
+
+    Built once per request. When several relationships apply, the most
+    appropriate one wins: staff > own child / self > coach roster > directory.
+    """
+
+    full: bool = False
+    directory: bool = False
+    child_ids: set = field(default_factory=set)
+    self_id: int | None = None
+    roster_ids: set = field(default_factory=set)
+
+    def queryset(self):
+        if self.full or self.directory:
+            return Student.objects.all()
+        ids = self.child_ids | self.roster_ids | ({self.self_id} if self.self_id else set())
+        return Student.objects.filter(id__in=ids)
+
+    def level_for(self, student_id):
+        if self.full:
+            return FULL
+        if student_id in self.child_ids or student_id == self.self_id:
+            return OWN
+        if student_id in self.roster_ids:
+            return ROSTER
+        if self.directory:
+            return DIRECTORY
+        return None
+
+
+def student_scope(user, at=None):
+    scope = StudentScope(full=can(user, Cap.STUDENTS_VIEW_ALL), directory=can(user, Cap.STUDENTS_VIEW_DIRECTORY))
+    if scope.full:
+        return scope
+    parent = _parent_for(user, Cap.STUDENTS_VIEW_OWN_CHILDREN)
+    if parent:
+        scope.child_ids = set(Student.objects.filter(guardianships__parent=parent).values_list("id", flat=True))
+    student = _student_for(user, Cap.STUDENTS_VIEW_SELF)
+    if student:
+        scope.self_id = student.id
+    coach = _coach_for(user, Cap.STUDENTS_VIEW_ASSIGNED)
+    if coach:
+        scope.roster_ids = coach_roster_student_ids(coach, at)
+    return scope
+
+
+def students_for(user, at=None):
+    return student_scope(user, at).queryset()
+
+
+def own_student_ids(user):
+    """The user's children plus their own student record (for parent/student-facing data)."""
+    ids = set(children_for(user).values_list("id", flat=True))
+    student = student_of(user)
+    if student:
+        ids.add(student.id)
+    return ids

@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.academy.models import SessionCoach, TrainingSession
+from apps.accounts.capabilities import Cap, require
 from apps.accounts.models import Coach
 from apps.audit.context import audit_context
 from apps.finance.services import month_bounds
@@ -124,6 +125,7 @@ def calculate_payslip(run, coach):
 @transaction.atomic
 def calculate_run(year, month, actor=None):
     """(Re)calculate a draft payroll month from sessions, rates and adjustments."""
+    require(actor, Cap.PAYROLL_PREPARE)
     run, _ = PayrollRun.objects.get_or_create(year=year, month=month)
     if run.is_locked:
         raise ValidationError("This payroll is finalized and cannot be recalculated.")
@@ -139,6 +141,9 @@ def calculate_run(year, month, actor=None):
 
 @transaction.atomic
 def finalize_run(run, actor=None):
+    """Lock a payroll month. Final approval is SUPER_ADMIN only (payroll.finalize);
+    finance admins prepare and calculate but cannot finalize."""
+    require(actor, Cap.PAYROLL_FINALIZE)
     if run.is_locked:
         raise ValidationError("Already finalized.")
     if run.calculated_at is None:

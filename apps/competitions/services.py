@@ -2,6 +2,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from apps.academy import access
+from apps.accounts.capabilities import Cap, can
 from apps.audit.context import audit_context
 from apps.finance.models import Charge, FeeType
 
@@ -16,9 +17,9 @@ def register(student, event, actor, notes=""):
     competition is open. A charge for the event fee is created automatically.
     """
     competition = event.competition
-    is_admin = access.is_admin(actor)
-    if not is_admin:
-        if not access.is_parent_of(actor, student):
+    is_manager = can(actor, Cap.COMPETITION_REGISTRATIONS_MANAGE)
+    if not is_manager:
+        if not can(actor, Cap.COMPETITION_REGISTER_OWN_CHILDREN) or not access.is_parent_of(actor, student):
             raise PermissionDenied("You can only register your own children.")
         if not competition.allow_parent_registration:
             raise PermissionDenied("Registration for this competition is handled by the academy.")
@@ -52,7 +53,7 @@ def register(student, event, actor, notes=""):
         return CompetitionRegistration.objects.create(
             event=event,
             student=student,
-            status=CompetitionRegistration.Status.CONFIRMED if is_admin else CompetitionRegistration.Status.PENDING,
+            status=CompetitionRegistration.Status.CONFIRMED if is_manager else CompetitionRegistration.Status.PENDING,
             registered_by=actor,
             charge=charge,
             notes=notes,
@@ -62,9 +63,9 @@ def register(student, event, actor, notes=""):
 @transaction.atomic
 def withdraw(registration, actor, reason="", status=CompetitionRegistration.Status.WITHDRAWN):
     competition = registration.event.competition
-    if not access.is_admin(actor):
+    if not can(actor, Cap.COMPETITION_REGISTRATIONS_MANAGE):
         status = CompetitionRegistration.Status.WITHDRAWN
-        if not access.is_parent_of(actor, registration.student):
+        if not can(actor, Cap.COMPETITION_REGISTER_OWN_CHILDREN) or not access.is_parent_of(actor, registration.student):
             raise PermissionDenied("You can only withdraw your own children.")
         if not competition.is_open_for_registration():
             raise ValidationError("The registration deadline has passed; please contact the academy.")

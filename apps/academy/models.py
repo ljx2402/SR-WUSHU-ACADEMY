@@ -244,6 +244,27 @@ class StudentStatusHistory(models.Model):
         return f"{self.student}: {self.previous_status or '-'} → {self.status}"
 
 
+class StudentAccount(AuditedModel):
+    """Links a login to one student (for older students, e.g. Elite / senior).
+
+    One user has at most one student account and one student has at most one
+    login. Linking alone grants nothing: the user must also hold the STUDENT
+    role (assigned by a super admin) to see their own record.
+    """
+
+    audit_category = AuditCategory.STUDENT
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="student_account")
+    student = models.OneToOneField(Student, on_delete=models.PROTECT, related_name="account")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "student login"
+
+    def __str__(self):
+        return f"{self.user} → {self.student}"
+
+
 class Guardianship(AuditedModel):
     """Links parents and students (many-to-many)."""
 

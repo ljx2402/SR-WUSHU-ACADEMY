@@ -5,15 +5,16 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
 from apps.academy import access
+from apps.accounts.capabilities import Cap, can
 
 from .models import Receipt
 
 
 def can_view_receipt(user, receipt):
-    if access.is_admin(user):
+    if can(user, Cap.FINANCE_VIEW_ALL):
         return True
     parent = access.parent_of(user)
-    if not parent:
+    if not parent or not can(user, Cap.FINANCE_VIEW_OWN_CHILDREN):
         return False
     if receipt.payment.parent_id == parent.pk:
         return True

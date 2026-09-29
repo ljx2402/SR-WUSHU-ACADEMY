@@ -1,6 +1,6 @@
 {% extends "admin/change_form.html" %}
 {% block object-tools-items %}
-  {% if original %}
+  {% if original and can_assign_substitute %}
     <li><a href="{% url 'admin:academy_trainingsession_substitute' original.pk %}">Assign substitute coach</a></li>
   {% endif %}
   {{ block.super }}

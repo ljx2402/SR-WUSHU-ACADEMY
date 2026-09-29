@@ -1,6 +1,6 @@
 {% extends "admin/change_form.html" %}
 {% block object-tools-items %}
-  {% if original and original.status == "VALID" %}
+  {% if original and original.status == "VALID" and can_void %}
     <li><a href="{% url 'admin:finance_payment_void' original.pk %}">Void payment &amp; receipt</a></li>
   {% endif %}
   {% if original.receipt %}

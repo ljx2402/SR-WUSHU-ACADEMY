@@ -1,31 +1,72 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils.crypto import salted_hmac
 
 from apps.audit.models import AuditCategory, AuditedModel
 
+from .capabilities import STAFF_ROLES, Role, has_role, primary_role
+
 
 class User(AbstractUser):
-    """Login account. The role decides which part of the system a user sees."""
+    """Login account.
 
-    class Role(models.TextChoices):
-        ADMIN = "ADMIN", "Admin"
-        COACH = "COACH", "Coach"
-        PARENT = "PARENT", "Parent"
+    Roles are Django Groups and are changed only through
+    ``apps.accounts.services.set_roles`` (which audits the change and revokes
+    the user's tokens and sessions). ``role``, ``is_staff`` and ``is_superuser``
+    are derived from the groups on every save and are never used as an
+    authorization source by academy code.
+    """
 
-    role = models.CharField(max_length=10, choices=Role.choices, default=Role.PARENT)
+    Role = Role  # backward-compatible alias: User.Role.ADMIN etc.
+
+    role = models.CharField(
+        max_length=20, choices=Role.choices, blank=True, default="", editable=False,
+        help_text="Display only: the highest-ranking role. Authorization uses the user's groups.",
+    )
     phone = models.CharField(max_length=30, blank=True)
+    auth_version = models.PositiveIntegerField(
+        default=0, editable=False,
+        help_text="Incremented to invalidate every existing login session of this user.",
+    )
 
-    @property
-    def is_academy_admin(self):
-        return self.is_active and (self.is_superuser or self.role == self.Role.ADMIN)
+    def save(self, *args, **kwargs):
+        if self.pk is None:
+            # New accounts start without roles. A superuser created with
+            # createsuperuser is promoted to SUPER_ADMIN by a post_save hook.
+            self._bootstrap_super_admin = self.is_superuser
+            self.is_superuser = self.is_staff = False
+            self.role = ""
+        else:
+            roles = set(self.groups.filter(name__in=Role.values).values_list("name", flat=True))
+            self.is_superuser = Role.SUPER_ADMIN in roles
+            self.is_staff = bool(roles & STAFF_ROLES)
+            self.role = primary_role(roles)
+        super().save(*args, **kwargs)
+
+    def _get_session_auth_hash(self, secret=None):
+        # Django compares this with the hash stored in each session. Mixing in
+        # auth_version lets role changes log the user out everywhere.
+        return salted_hmac(
+            "apps.accounts.models.User.get_session_auth_hash",
+            f"{self.password}:{self.auth_version}",
+            secret=secret,
+            algorithm="sha256",
+        ).hexdigest()
 
     @property
     def coach(self):
-        return getattr(self, "coach_profile", None) if self.role == self.Role.COACH else None
+        return getattr(self, "coach_profile", None) if has_role(self, Role.COACH) else None
 
     @property
     def parent(self):
-        return getattr(self, "parent_profile", None) if self.role == self.Role.PARENT else None
+        return getattr(self, "parent_profile", None) if has_role(self, Role.PARENT) else None
+
+    @property
+    def student(self):
+        if not has_role(self, Role.STUDENT):
+            return None
+        account = getattr(self, "student_account", None)
+        return account.student if account else None
 
 
 class Parent(AuditedModel):

@@ -1,6 +1,8 @@
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 
+from apps.accounts.capabilities import Cap, can
+
 from . import services
 from .models import CoachRate, PayrollAdjustment, PayrollRun, Payslip, PayslipLine
 
@@ -58,7 +60,13 @@ class PayrollRunAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return obj is not None and not obj.is_locked
 
-    @admin.action(description="Calculate / recalculate payslips")
+    def has_calculate_permission(self, request):
+        return can(request.user, Cap.PAYROLL_PREPARE)
+
+    def has_finalize_permission(self, request):
+        return can(request.user, Cap.PAYROLL_FINALIZE)
+
+    @admin.action(description="Calculate / recalculate payslips", permissions=["calculate"])
     def calculate(self, request, queryset):
         for run in queryset:
             try:
@@ -67,7 +75,7 @@ class PayrollRunAdmin(admin.ModelAdmin):
             except ValidationError as exc:
                 self.message_user(request, f"{run}: {'; '.join(exc.messages)}", messages.ERROR)
 
-    @admin.action(description="Finalize (locks payslips)")
+    @admin.action(description="Finalize (locks payslips) – super admin only", permissions=["finalize"])
     def finalize(self, request, queryset):
         for run in queryset:
             try:

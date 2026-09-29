@@ -30,11 +30,11 @@ class FinanceTestCase(AcademyTestCase):
 
 class FeeTests(FinanceTestCase):
     def test_monthly_billing_is_idempotent(self):
-        created = generate_tuition_charges(self.year, self.month, self.admin_user)
+        created = generate_tuition_charges(self.year, self.month, self.finance_user)
         self.assertEqual({(c.student, c.amount) for c in created},
                          {(self.student_1, Decimal("120.00")), (self.student_2, Decimal("250.00")),
                           (self.student_3, Decimal("120.00"))})
-        self.assertEqual(generate_tuition_charges(self.year, self.month, self.admin_user), [])
+        self.assertEqual(generate_tuition_charges(self.year, self.month, self.finance_user), [])
 
     def test_billed_fee_is_locked_and_history_preserved(self):
         charge = generate_tuition_charges(self.year, self.month)[0]
@@ -75,18 +75,18 @@ class FeeTests(FinanceTestCase):
                          [(self.student_1, Decimal("1"), Decimal("30.00"))])
 
     def test_one_off_charges(self):
-        charge = add_charge(self.student_1, "WEAPON", "Jian (straight sword)", "180.00", self.admin_user)
+        charge = add_charge(self.student_1, "WEAPON", "Jian (straight sword)", "180.00", self.finance_user)
         self.assertEqual(charge.amount, Decimal("180.00"))
         with self.assertRaises(PermissionDenied):
             charge.delete()
-        cancel_charge(charge, "Ordered by mistake", self.admin_user)
+        cancel_charge(charge, "Ordered by mistake", self.finance_user)
         self.assertEqual(charge.status, Charge.Status.CANCELLED)
 
 
 class PaymentReceiptTests(FinanceTestCase):
     def setUp(self):
-        self.charge_1 = add_charge(self.student_1, "REGISTRATION", "Registration fee", "100.00", self.admin_user)
-        self.charge_2 = add_charge(self.student_2, "UNIFORM", "Uniform", "80.00", self.admin_user)
+        self.charge_1 = add_charge(self.student_1, "REGISTRATION", "Registration fee", "100.00", self.finance_user)
+        self.charge_2 = add_charge(self.student_2, "UNIFORM", "Uniform", "80.00", self.finance_user)
 
     def pay(self, amount="180.00", allocations=None):
         allocations = allocations or [(self.charge_1, "100.00"), (self.charge_2, "80.00")]
@@ -125,7 +125,7 @@ class PaymentReceiptTests(FinanceTestCase):
 
     def test_void_keeps_receipt_and_reopens_charges(self):
         payment, receipt = self.pay()
-        void_payment(payment, "Cheque bounced", self.admin_user)
+        void_payment(payment, "Cheque bounced", self.finance_user)
         receipt = Receipt.objects.get(pk=receipt.pk)
         self.assertTrue(receipt.is_void)
         self.assertEqual(receipt.content["total"], "180.00")

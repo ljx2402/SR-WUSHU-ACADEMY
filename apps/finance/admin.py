@@ -2,12 +2,13 @@ from decimal import Decimal
 
 from django import forms
 from django.contrib import admin, messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from apps.accounts.capabilities import Cap, can
 from apps.audit.context import audit_context
 
 from . import services
@@ -79,11 +80,11 @@ class ChargeAdmin(admin.ModelAdmin):
                 self.message_user(request, f"{charge}: {'; '.join(exc.messages)}", messages.ERROR)
         self.message_user(request, f"Updated {done} charge(s).")
 
-    @admin.action(description="Cancel selected charges")
+    @admin.action(description="Cancel selected charges", permissions=["change"])
     def cancel_charges(self, request, queryset):
         self._close(request, queryset, waive=False)
 
-    @admin.action(description="Waive selected charges")
+    @admin.action(description="Waive selected charges", permissions=["change"])
     def waive_charges(self, request, queryset):
         self._close(request, queryset, waive=True)
 
@@ -115,10 +116,10 @@ class AllocationInline(admin.TabularInline):
     can_delete = False
 
     def has_change_permission(self, request, obj=None):
-        return obj is None
+        return obj is None and super().has_change_permission(request, obj)
 
     def has_add_permission(self, request, obj=None):
-        return obj is None
+        return obj is None and super().has_add_permission(request, obj)
 
 
 class VoidForm(forms.Form):
@@ -172,7 +173,13 @@ class PaymentAdmin(admin.ModelAdmin):
             path("<int:pk>/void/", self.admin_site.admin_view(self.void_view), name="finance_payment_void"),
         ] + super().get_urls()
 
+    def render_change_form(self, request, context, *args, **kwargs):
+        context["can_void"] = can(request.user, Cap.FINANCE_PAYMENTS_VOID)
+        return super().render_change_form(request, context, *args, **kwargs)
+
     def void_view(self, request, pk):
+        if not can(request.user, Cap.FINANCE_PAYMENTS_VOID):
+            raise PermissionDenied
         payment = get_object_or_404(Payment, pk=pk)
         form = VoidForm(request.POST or None)
         if request.method == "POST" and form.is_valid():

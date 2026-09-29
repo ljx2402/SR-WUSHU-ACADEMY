@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+import dj_database_url
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -63,7 +65,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-if os.environ.get("POSTGRES_DB"):
+# Database selection, in order of precedence:
+#   1. DATABASE_URL, e.g. postgres://user:pass@localhost:5432/sr_academy (authoritative)
+#   2. POSTGRES_DB (+ POSTGRES_USER/PASSWORD/HOST/PORT), kept for backward compatibility
+#   3. SQLite file, a lightweight local option only. PostgreSQL is the reference database:
+#      CI runs the full suite on PostgreSQL 16, and row-locking behaviour is only real there.
+CONN_MAX_AGE = int(os.environ.get("DB_CONN_MAX_AGE", "60"))
+
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.environ["DATABASE_URL"], conn_max_age=CONN_MAX_AGE, conn_health_checks=True
+        )
+    }
+elif os.environ.get("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -72,6 +87,8 @@ if os.environ.get("POSTGRES_DB"):
             "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
             "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
             "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": CONN_MAX_AGE,
+            "CONN_HEALTH_CHECKS": True,
         }
     }
 else:
@@ -82,7 +99,15 @@ else:
         }
     }
 
+# Behind a transaction-mode connection pooler (e.g. PgBouncer) server-side cursors must be off.
+if env_bool("DB_DISABLE_SERVER_SIDE_CURSORS"):
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
 AUTH_USER_MODEL = "accounts.User"
+
+# Admin-site model permissions come from apps/accounts/capabilities.py, not from
+# permission rows in the database.
+AUTHENTICATION_BACKENDS = ["apps.accounts.backends.CapabilityBackend"]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

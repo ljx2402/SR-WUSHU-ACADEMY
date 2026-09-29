@@ -20,7 +20,7 @@ class PayrollTests(AcademyTestCase):
         CoachRate.objects.create(coach=cls.coach_b, rate_type="MONTHLY", amount=Decimal("3000"), effective_from=since)
 
     def run_payroll(self):
-        return calculate_run(self.today.year, self.today.month, self.admin_user)
+        return calculate_run(self.today.year, self.today.month, self.finance_user)
 
     def test_hourly_and_monthly(self):
         run = self.run_payroll()
@@ -56,7 +56,7 @@ class PayrollTests(AcademyTestCase):
 
     def test_finalized_payroll_is_locked(self):
         run = self.run_payroll()
-        finalize_run(run, self.admin_user)
+        finalize_run(run, self.super_user)
         payslip = Payslip.objects.get(run=run, coach=self.coach_a)
         with self.assertRaises(PermissionDenied):
             payslip.save()

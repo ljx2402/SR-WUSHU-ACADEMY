@@ -1,3 +1,14 @@
+"""REST API for the admin, Parent, Coach and Student apps.
+
+Authorization is two-layered on every endpoint:
+1. ``capabilities`` (per action) + ``HasCapability``: may this user perform the action at all?
+2. ``get_queryset`` built from ``apps.academy.access``: which records?
+Records outside the caller's scope return 404.
+"""
+
+from datetime import date
+
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
@@ -6,12 +17,15 @@ from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.academy import access
 from apps.academy import services as academy_services
-from apps.academy.models import Enrollment, SessionCoach, Student, TrainingClass, TrainingSession
+from apps.academy.models import Enrollment, SessionCoach, Student, TrainingClass
+from apps.accounts import services as account_services
+from apps.accounts.capabilities import Cap, can, capabilities_of
 from apps.accounts.models import Coach, Parent
 from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceRecord
@@ -24,7 +38,20 @@ from apps.finance.models import Charge, Payment, Receipt
 from apps.payroll.models import PayrollRun, Payslip
 
 from . import serializers as s
-from .permissions import IsAcademyAdmin, IsAdminOrCoach, IsAdminOrParent, IsAdminOrReadOnly
+from .permissions import HasCapability
+
+READ = ("list", "retrieve")
+WRITE = ("create", "update", "partial_update")
+
+
+def caps(**actions):
+    """Build a capability map; ``read=`` and ``write=`` expand to the standard actions."""
+    result = {}
+    for key, requirement in actions.items():
+        targets = READ if key == "read" else WRITE if key == "write" else (key,)
+        for target in targets:
+            result[target] = requirement
+    return result
 
 
 def as_drf_error(exc):
@@ -38,8 +65,11 @@ def summary_json(summary):
     return {**summary, "percentage": str(pct) if pct is not None else None}
 
 
-class AuditActorMixin:
-    """Make the authenticated API user the actor for audit entries."""
+class ApiViewMixin:
+    """Capability permission, audit actor and Django-exception translation for every API view."""
+
+    permission_classes = [HasCapability]
+    capabilities = {}
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -58,56 +88,119 @@ class AuditActorMixin:
         return super().handle_exception(exc)
 
 
-class MeView(AuditActorMixin, APIView):
-    def get(self, request):
-        user = request.user
-        data = {
-            "id": user.id,
-            "username": user.username,
-            "name": user.get_full_name(),
-            "role": access.role_of(user),
-        }
-        parent = access.parent_of(user)
-        if parent:
-            data["parent"] = s.ParentSerializer(parent).data
-            data["children"] = [{"id": c.id, "student_no": c.student_no, "full_name": c.full_name}
-                                for c in access.students_for(user)]
-        coach = access.coach_of(user)
-        if coach:
-            data["coach"] = s.CoachSerializer(coach).data
-            data["classes"] = [{"id": c.id, "name": c.name} for c in access.classes_for(user)]
-            data["substitute_sessions"] = [
-                {"session": slot.session_id, "access_ends_at": slot.access_ends_at}
-                for slot in access.open_substitute_slots(coach)
-            ]
-        return Response(data)
-
-
 class NoDestroyModelViewSet(mixins.CreateModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin,
                             mixins.ListModelMixin, viewsets.GenericViewSet):
     pass
 
 
-class ParentViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    permission_classes = [IsAcademyAdmin]
-    serializer_class = s.ParentSerializer
-    queryset = Parent.objects.all()
+class MeView(ApiViewMixin, APIView):
+    """Any signed-in user: who am I, which roles and capabilities do I hold."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        roles = account_services.roles_for_display(user)
+        data = {
+            "id": user.id,
+            "username": user.username,
+            "name": user.get_full_name(),
+            "role": roles[0] if roles else None,
+            "roles": roles,
+            "capabilities": sorted(capabilities_of(user)),
+        }
+        parent = access.parent_of(user)
+        if parent:
+            data["parent"] = s.ParentSerializer(parent).data
+            data["children"] = [{"id": c.id, "student_no": c.student_no, "full_name": c.full_name}
+                                for c in access.children_for(user).order_by("full_name")]
+        coach = access.coach_of(user)
+        if coach:
+            data["coach"] = s.CoachSerializer(coach, context={"request": request}).data
+            data["classes"] = [{"id": c.id, "name": c.name} for c in access.roster_classes_for(user)]
+            data["substitute_sessions"] = [
+                {"session": slot.session_id, "access_ends_at": slot.access_ends_at}
+                for slot in access.open_substitute_slots(coach)
+            ]
+        student = access.student_of(user)
+        if student:
+            data["student"] = {"id": student.id, "student_no": student.student_no, "full_name": student.full_name}
+        return Response(data)
 
 
-class CoachViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    permission_classes = [IsAcademyAdmin]
-    serializer_class = s.CoachSerializer
-    queryset = Coach.objects.all()
+class UserViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
+    """User accounts and their roles. Role changes need ``roles.manage`` and a reason."""
 
-
-class StudentViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    """Admins: full CRUD (no delete). Parents: their own children.
-    Coaches: current members of their classes (training info + emergency contacts)."""
-
-    permission_classes = [IsAdminOrReadOnly]
+    serializer_class = s.UserSerializer
+    capabilities = caps(read=Cap.USERS_VIEW, roles=Cap.ROLES_MANAGE)
 
     def get_queryset(self):
-        qs = access.students_for(self.request.user).prefetch_related("guardianships__parent")
+        return get_user_model().objects.prefetch_related("groups").order_by("username")
+
+    @action(detail=True, methods=["post"])
+    def roles(self, request, pk=None):
+        user = self.get_object()
+        payload = s.RoleChangeSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        account_services.set_roles(user, payload.validated_data["roles"], request.user, payload.validated_data["reason"])
+        return Response(self.get_serializer(user).data)
+
+
+class ParentViewSet(ApiViewMixin, NoDestroyModelViewSet):
+    serializer_class = s.ParentSerializer
+    queryset = Parent.objects.all()
+    capabilities = caps(read=Cap.PARENTS_VIEW_ALL, write=Cap.PARENTS_MANAGE)
+
+
+class CoachViewSet(ApiViewMixin, NoDestroyModelViewSet):
+    """Bank / EPF / SOCSO details are only included for ``coaches.bank_details``."""
+
+    serializer_class = s.CoachSerializer
+    queryset = Coach.objects.all()
+    capabilities = caps(read=Cap.COACHES_VIEW_ALL, write=(Cap.COACHES_MANAGE, Cap.COACHES_BANK_DETAILS))
+
+
+STUDENT_SERIALIZERS = {
+    access.FULL: s.StudentSerializer,
+    access.OWN: s.OwnStudentSerializer,
+    access.ROSTER: s.RosterStudentSerializer,
+    access.DIRECTORY: s.StudentDirectorySerializer,
+}
+
+
+class StudentViewSet(ApiViewMixin, NoDestroyModelViewSet):
+    """Staff: full records. Parents: own children. Students: themselves.
+    Coaches: current members of their classes (training info + emergency contacts).
+    Finance: directory (names and guardian contacts).
+
+    Each record is rendered at the level matching how the caller relates to it,
+    so a coach who is also a parent sees their own child as a parent and the
+    rest of their roster as a coach."""
+
+    serializer_class = s.StudentSerializer
+    capabilities = caps(
+        read=(Cap.STUDENTS_VIEW_ALL, Cap.STUDENTS_VIEW_DIRECTORY, Cap.STUDENTS_VIEW_ASSIGNED,
+              Cap.STUDENTS_VIEW_OWN_CHILDREN, Cap.STUDENTS_VIEW_SELF),
+        write=Cap.STUDENTS_MANAGE,
+        attendance_summary=(Cap.STUDENTS_VIEW_ALL, Cap.STUDENTS_VIEW_ASSIGNED, Cap.STUDENTS_VIEW_OWN_CHILDREN,
+                            Cap.STUDENTS_VIEW_SELF),
+        history=Cap.STUDENTS_HISTORY,
+        change_status=Cap.STUDENTS_MANAGE,
+        add_guardian=Cap.STUDENTS_MANAGE,
+    )
+
+    def scope(self):
+        if not hasattr(self, "_scope"):
+            self._scope = access.student_scope(self.request.user)
+        return self._scope
+
+    def get_queryset(self):
+        qs = self.scope().queryset().prefetch_related("guardianships__parent")
+        if self.action == "attendance_summary":
+            # Attendance is never visible through the finance directory.
+            scope = self.scope()
+            if not scope.full:
+                qs = qs.filter(id__in=scope.child_ids | scope.roster_ids | ({scope.self_id} if scope.self_id else set()))
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(full_name__icontains=search) | Q(student_no__icontains=search) | Q(chinese_name__icontains=search))
@@ -115,25 +208,30 @@ class StudentViewSet(AuditActorMixin, NoDestroyModelViewSet):
             qs = qs.filter(status=self.request.query_params["status"])
         return qs.order_by("full_name")
 
-    def get_serializer_class(self):
-        user = self.request.user
-        if access.is_admin(user):
-            return s.StudentSerializer
-        if access.parent_of(user):
-            return s.ParentStudentSerializer
-        return s.RosterStudentSerializer
+    def represent(self, student):
+        serializer_class = STUDENT_SERIALIZERS[self.scope().level_for(student.id)]
+        return serializer_class(student, context=self.get_serializer_context()).data
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return self.get_paginated_response([self.represent(st) for st in page])
+        return Response([self.represent(st) for st in queryset])
+
+    def retrieve(self, request, *args, **kwargs):
+        return Response(self.represent(self.get_object()))
 
     @action(detail=True, methods=["get"], url_path="attendance-summary")
     def attendance_summary(self, request, pk=None):
         student = self.get_object()
         params = request.query_params
-        classes = access.classes_for(request.user)
         class_id = params.get("class")
-        training_class = get_object_or_404(classes, pk=class_id) if class_id else None
+        training_class = get_object_or_404(access.classes_for(request.user), pk=class_id) if class_id else None
         summary = attendance_services.student_summary(student, training_class, params.get("start"), params.get("end"))
         return Response({"student": student.id, **summary_json(summary)})
 
-    @action(detail=True, methods=["get"], permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["get"])
     def history(self, request, pk=None):
         student = self.get_object()
         entries = list(history_for(student))
@@ -149,7 +247,7 @@ class StudentViewSet(AuditActorMixin, NoDestroyModelViewSet):
             "changes": s.AuditLogSerializer(entries, many=True).data,
         })
 
-    @action(detail=True, methods=["post"], url_path="change-status", permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"], url_path="change-status")
     def change_status(self, request, pk=None):
         student = self.get_object()
         new_status = request.data.get("status")
@@ -158,7 +256,7 @@ class StudentViewSet(AuditActorMixin, NoDestroyModelViewSet):
         academy_services.change_student_status(student, new_status, request.data.get("reason", ""), request.user)
         return Response(s.StudentSerializer(student).data)
 
-    @action(detail=True, methods=["post"], url_path="guardians", permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"], url_path="guardians")
     def add_guardian(self, request, pk=None):
         student = self.get_object()
         serializer = s.GuardianSerializer(data=request.data)
@@ -167,11 +265,12 @@ class StudentViewSet(AuditActorMixin, NoDestroyModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class EnrollmentViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
+class EnrollmentViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
                         viewsets.GenericViewSet):
-    permission_classes = [IsAcademyAdmin]
     serializer_class = s.EnrollmentSerializer
     queryset = Enrollment.objects.select_related("student", "training_class", "team", "coach")
+    capabilities = caps(read=Cap.STUDENTS_VIEW_ALL, create=Cap.STUDENTS_MANAGE, end=Cap.STUDENTS_MANAGE,
+                        transfer=Cap.STUDENTS_MANAGE)
 
     def perform_create(self, serializer):
         data = serializer.validated_data
@@ -196,24 +295,31 @@ class EnrollmentViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveM
         return Response(self.get_serializer(new).data, status=status.HTTP_201_CREATED)
 
 
-class TrainingClassViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    permission_classes = [IsAdminOrReadOnly]
+class TrainingClassViewSet(ApiViewMixin, NoDestroyModelViewSet):
     serializer_class = s.TrainingClassSerializer
+    capabilities = caps(
+        read=(Cap.CLASSES_VIEW_ALL, Cap.CLASSES_VIEW_ASSIGNED, Cap.CLASSES_VIEW_OWN_CHILDREN, Cap.CLASSES_VIEW_SELF),
+        write=Cap.CLASSES_MANAGE,
+        students=(Cap.ROSTER_VIEW_ALL, Cap.ROSTER_VIEW_ASSIGNED),
+        generate_sessions=Cap.SESSIONS_MANAGE,
+    )
 
     def get_queryset(self):
-        return access.classes_for(self.request.user).select_related("program", "team").prefetch_related("schedules")
+        if self.action == "students":
+            qs = access.roster_classes_for(self.request.user)
+        else:
+            qs = access.classes_for(self.request.user)
+        return qs.select_related("program", "team").prefetch_related("schedules")
 
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrCoach])
+    @action(detail=True, methods=["get"])
     def students(self, request, pk=None):
         training_class = self.get_object()
-        students = training_class.enrollments.active_on(timezone.localdate())
-        qs = Student.objects.filter(enrollments__in=students).distinct().prefetch_related("guardianships__parent")
+        members = training_class.enrollments.active_on(timezone.localdate())
+        qs = Student.objects.filter(enrollments__in=members).distinct().prefetch_related("guardianships__parent")
         return Response(s.RosterStudentSerializer(qs, many=True).data)
 
-    @action(detail=True, methods=["post"], url_path="generate-sessions", permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"], url_path="generate-sessions")
     def generate_sessions(self, request, pk=None):
-        from datetime import date
-
         training_class = self.get_object()
         try:
             start = date.fromisoformat(request.data["start"])
@@ -224,15 +330,26 @@ class TrainingClassViewSet(AuditActorMixin, NoDestroyModelViewSet):
         return Response({"created": len(created)}, status=status.HTTP_201_CREATED)
 
 
-class TrainingSessionViewSet(AuditActorMixin, NoDestroyModelViewSet):
+class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
     """Coaches see their classes' sessions; substitutes see only the session
-    they cover, while their access window is open."""
+    they cover, while their access window is open. Rosters and attendance are
+    only reachable as staff or coach, never through a parent/student role."""
 
-    permission_classes = [IsAdminOrReadOnly]
     serializer_class = s.TrainingSessionSerializer
+    capabilities = caps(
+        read=(Cap.SESSIONS_VIEW_ALL, Cap.SESSIONS_VIEW_ASSIGNED, Cap.SESSIONS_VIEW_OWN_CHILDREN, Cap.SESSIONS_VIEW_SELF),
+        write=Cap.SESSIONS_MANAGE,
+        roster=(Cap.ROSTER_VIEW_ALL, Cap.ROSTER_VIEW_ASSIGNED),
+        attendance=(Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_VIEW_ASSIGNED),
+        assign_substitute=Cap.SUBSTITUTE_ASSIGN,
+        revoke_substitute=Cap.SUBSTITUTE_REVOKE,
+    )
+    STAFF_ACTIONS = {"roster", "attendance"}
 
     def get_queryset(self):
-        qs = access.sessions_for(self.request.user).select_related("training_class").prefetch_related("coach_slots__coach")
+        user = self.request.user
+        qs = access.roster_sessions_for(user) if self.action in self.STAFF_ACTIONS else access.sessions_for(user)
+        qs = qs.select_related("training_class").prefetch_related("coach_slots__coach")
         params = self.request.query_params
         if params.get("date"):
             qs = qs.filter(date=params["date"])
@@ -244,21 +361,15 @@ class TrainingSessionViewSet(AuditActorMixin, NoDestroyModelViewSet):
             qs = qs.filter(training_class_id=params["class"])
         return qs
 
-    def _session_for_staff(self):
-        session = self.get_object()
-        if access.parent_of(self.request.user):
-            raise PermissionDenied("Parents cannot view class rosters.")
-        return session
-
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrCoach])
+    @action(detail=True, methods=["get"])
     def roster(self, request, pk=None):
-        session = self._session_for_staff()
+        session = self.get_object()
         students = session.roster().prefetch_related("guardianships__parent")
         return Response(s.RosterStudentSerializer(students, many=True).data)
 
-    @action(detail=True, methods=["get", "post"], permission_classes=[IsAdminOrCoach])
+    @action(detail=True, methods=["get", "post"])
     def attendance(self, request, pk=None):
-        session = self._session_for_staff()
+        session = self.get_object()
         if request.method == "GET":
             records = session.attendance.select_related("student", "recorded_by", "session__training_class")
             return Response({
@@ -266,6 +377,8 @@ class TrainingSessionViewSet(AuditActorMixin, NoDestroyModelViewSet):
                 "summary": summary_json(attendance_services.session_summary(session)),
                 "records": s.AttendanceRecordSerializer(records, many=True).data,
             })
+        if not can(request.user, (Cap.ATTENDANCE_TAKE_ANY, Cap.ATTENDANCE_TAKE_ASSIGNED)):
+            raise PermissionDenied()
         payload = s.AttendanceSubmitSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         roster = {st.id: st for st in session.roster()}
@@ -279,7 +392,7 @@ class TrainingSessionViewSet(AuditActorMixin, NoDestroyModelViewSet):
             ))
         return Response(s.AttendanceRecordSerializer(saved, many=True).data)
 
-    @action(detail=True, methods=["post"], url_path="assign-substitute", permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"], url_path="assign-substitute")
     def assign_substitute(self, request, pk=None):
         session = self.get_object()
         substitute = get_object_or_404(Coach, pk=request.data.get("substitute"))
@@ -288,7 +401,7 @@ class TrainingSessionViewSet(AuditActorMixin, NoDestroyModelViewSet):
                                                   request.data.get("reason", ""))
         return Response(s.SessionCoachSerializer(slot).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"], url_path="revoke-substitute", permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"], url_path="revoke-substitute")
     def revoke_substitute(self, request, pk=None):
         session = self.get_object()
         slot = get_object_or_404(SessionCoach, session=session, coach_id=request.data.get("substitute"),
@@ -297,20 +410,26 @@ class TrainingSessionViewSet(AuditActorMixin, NoDestroyModelViewSet):
         return Response(s.SessionCoachSerializer(slot).data)
 
 
-class AttendanceRecordViewSet(AuditActorMixin, viewsets.ReadOnlyModelViewSet):
+class AttendanceRecordViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = s.AttendanceRecordSerializer
+    capabilities = caps(
+        read=(Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_VIEW_ASSIGNED, Cap.ATTENDANCE_VIEW_OWN_CHILDREN,
+              Cap.ATTENDANCE_VIEW_SELF),
+        history=(Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_VIEW_ASSIGNED),
+    )
 
     def get_queryset(self):
         user = self.request.user
         qs = AttendanceRecord.objects.select_related("student", "session__training_class", "recorded_by")
-        if access.is_admin(user):
-            pass
-        elif access.parent_of(user):
-            qs = qs.filter(student__in=access.students_for(user))
-        elif access.coach_of(user):
-            qs = qs.filter(session__in=access.sessions_for(user))
-        else:
-            return qs.none()
+        staff_sessions = access.roster_sessions_for(user)
+        if self.action == "history":
+            # Change history is a staff/coach view, never reachable as a parent.
+            qs = qs.filter(session__in=staff_sessions)
+        elif not can(user, Cap.ATTENDANCE_VIEW_ALL):
+            scope = Q(session__in=staff_sessions)
+            if can(user, (Cap.ATTENDANCE_VIEW_OWN_CHILDREN, Cap.ATTENDANCE_VIEW_SELF)):
+                scope |= Q(student_id__in=self._own_student_ids(user))
+            qs = qs.filter(scope)
         params = self.request.query_params
         if params.get("student"):
             qs = qs.filter(student_id=params["student"])
@@ -320,23 +439,44 @@ class AttendanceRecordViewSet(AuditActorMixin, viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(session__date__lte=params["end"])
         return qs.order_by("-session__date", "student__full_name")
 
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrCoach])
+    @staticmethod
+    def _own_student_ids(user):
+        ids = set()
+        if can(user, Cap.ATTENDANCE_VIEW_OWN_CHILDREN):
+            ids |= set(access.children_for(user).values_list("id", flat=True))
+        student = access.student_of(user)
+        if student and can(user, Cap.ATTENDANCE_VIEW_SELF):
+            ids.add(student.id)
+        return ids
+
+    @action(detail=True, methods=["get"])
     def history(self, request, pk=None):
         return Response(s.AuditLogSerializer(history_for(self.get_object()), many=True).data)
 
 
-class ChargeViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
-                    viewsets.GenericViewSet):
-    """Fees and charges. Admins manage; parents see their children's. Coaches: no access."""
+def family_finance_filter(user, student_field):
+    """Finance rows a parent may see: only their own children, never students
+    they coach. (Student logins get finance access with the invoice phase.)"""
+    return Q(**{f"{student_field}__in": access.children_for(user)})
 
-    permission_classes = [IsAdminOrParent]
+
+class ChargeViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
+                    viewsets.GenericViewSet):
+    """Fees and charges. Finance staff manage; admins view; parents see their children's."""
+
     serializer_class = s.ChargeSerializer
+    capabilities = caps(
+        read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN),
+        create=Cap.FINANCE_CHARGES_MANAGE,
+        cancel=Cap.FINANCE_CHARGES_MANAGE,
+        generate_monthly=Cap.FINANCE_CHARGES_MANAGE,
+    )
 
     def get_queryset(self):
         user = self.request.user
         qs = Charge.objects.select_related("student")
-        if not access.is_admin(user):
-            qs = qs.filter(student__in=access.students_for(user))
+        if not can(user, Cap.FINANCE_VIEW_ALL):
+            qs = qs.filter(family_finance_filter(user, "student"))
         params = self.request.query_params
         if params.get("student"):
             qs = qs.filter(student_id=params["student"])
@@ -347,14 +487,12 @@ class ChargeViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModel
         return qs
 
     def create(self, request, *args, **kwargs):
-        if not access.is_admin(request.user):
-            raise PermissionDenied()
         data = s.ChargeCreateSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         charge = finance_services.add_charge(actor=request.user, **data.validated_data)
         return Response(s.ChargeSerializer(charge).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         reason = s.ReasonSerializer(data=request.data)
         reason.is_valid(raise_exception=True)
@@ -362,7 +500,7 @@ class ChargeViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModel
                                                 waive=bool(request.data.get("waive")))
         return Response(s.ChargeSerializer(charge).data)
 
-    @action(detail=False, methods=["post"], url_path="generate-monthly", permission_classes=[IsAcademyAdmin])
+    @action(detail=False, methods=["post"], url_path="generate-monthly")
     def generate_monthly(self, request):
         try:
             year, month = int(request.data["year"]), int(request.data["month"])
@@ -372,22 +510,24 @@ class ChargeViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModel
         return Response({"created": len(created)}, status=status.HTTP_201_CREATED)
 
 
-class PaymentViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
+class PaymentViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
                      viewsets.GenericViewSet):
-    permission_classes = [IsAdminOrParent]
     serializer_class = s.PaymentSerializer
+    capabilities = caps(
+        read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN),
+        create=Cap.FINANCE_PAYMENTS_RECORD,
+        void=Cap.FINANCE_PAYMENTS_VOID,
+    )
 
     def get_queryset(self):
         user = self.request.user
         qs = Payment.objects.select_related("receipt").prefetch_related("allocations__charge__student")
-        if access.is_admin(user):
+        if can(user, Cap.FINANCE_VIEW_ALL):
             return qs
         parent = access.parent_of(user)
-        return qs.filter(Q(parent=parent) | Q(allocations__charge__student__in=access.students_for(user))).distinct()
+        return qs.filter(Q(parent=parent) | family_finance_filter(user, "allocations__charge__student")).distinct()
 
     def create(self, request, *args, **kwargs):
-        if not access.is_admin(request.user):
-            raise PermissionDenied("Payments are recorded by the academy.")
         data = s.PaymentCreateSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         v = data.validated_data
@@ -399,7 +539,7 @@ class PaymentViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveMode
         )
         return Response(s.PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"])
     def void(self, request, pk=None):
         reason = s.ReasonSerializer(data=request.data)
         reason.is_valid(raise_exception=True)
@@ -407,56 +547,85 @@ class PaymentViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveMode
         return Response(s.PaymentSerializer(payment).data)
 
 
-class ReceiptViewSet(AuditActorMixin, viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAdminOrParent]
+class ReceiptViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = s.ReceiptSerializer
+    capabilities = caps(read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN))
 
     def get_queryset(self):
         user = self.request.user
         qs = Receipt.objects.select_related("payment")
-        if access.is_admin(user):
+        if can(user, Cap.FINANCE_VIEW_ALL):
             return qs
         return qs.filter(
-            Q(payment__parent=access.parent_of(user))
-            | Q(payment__allocations__charge__student__in=access.students_for(user))
+            Q(payment__parent=access.parent_of(user)) | family_finance_filter(user, "payment__allocations__charge__student")
         ).distinct()
 
 
-class CompetitionViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    permission_classes = [IsAdminOrReadOnly]
+class CompetitionViewSet(ApiViewMixin, NoDestroyModelViewSet):
     serializer_class = s.CompetitionSerializer
+    capabilities = caps(read=(Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE), write=Cap.COMPETITION_MANAGE)
 
     def get_queryset(self):
         qs = Competition.objects.prefetch_related("events")
-        if not access.is_admin(self.request.user):
+        if not can(self.request.user, Cap.COMPETITION_MANAGE):
             qs = qs.exclude(status=Competition.Status.DRAFT)
         return qs
 
 
-class CompetitionEventViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    permission_classes = [IsAdminOrReadOnly]
+class CompetitionEventViewSet(ApiViewMixin, NoDestroyModelViewSet):
     serializer_class = s.CompetitionEventSerializer
+    capabilities = caps(read=(Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE), write=Cap.COMPETITION_MANAGE)
 
     def get_queryset(self):
         qs = CompetitionEvent.objects.select_related("competition")
-        if not access.is_admin(self.request.user):
+        if not can(self.request.user, Cap.COMPETITION_MANAGE):
             qs = qs.exclude(competition__status=Competition.Status.DRAFT)
         if self.request.query_params.get("competition"):
             qs = qs.filter(competition_id=self.request.query_params["competition"])
         return qs
 
 
-class CompetitionRegistrationViewSet(AuditActorMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+REGISTRATION_READ = (
+    Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_VIEW_ASSIGNED,
+    Cap.COMPETITION_REGISTRATIONS_VIEW_OWN_CHILDREN, Cap.COMPETITION_REGISTRATIONS_VIEW_SELF,
+)
+
+
+def registration_scope(user, student_field):
+    """Competition entries visible to the user: all, own children, own athletes, or self."""
+    if can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL):
+        return Q()
+    q = Q(pk__in=[])
+    if can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_OWN_CHILDREN):
+        q |= Q(**{f"{student_field}__in": access.children_for(user)})
+    coach = access.coach_of(user)
+    if coach and can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_ASSIGNED):
+        q |= Q(**{f"{student_field}_id__in": access.coach_roster_student_ids(coach)})
+    student = access.student_of(user)
+    if student and can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_SELF):
+        q |= Q(**{f"{student_field}_id": student.id})
+    return q
+
+
+class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
                                      mixins.CreateModelMixin, viewsets.GenericViewSet):
     """Parents register their own children through the Parent App."""
 
     serializer_class = s.CompetitionRegistrationSerializer
+    capabilities = caps(
+        read=REGISTRATION_READ,
+        create=(Cap.COMPETITION_REGISTRATIONS_MANAGE, Cap.COMPETITION_REGISTER_OWN_CHILDREN),
+        withdraw=(Cap.COMPETITION_REGISTRATIONS_MANAGE, Cap.COMPETITION_REGISTER_OWN_CHILDREN),
+        confirm=Cap.COMPETITION_REGISTRATIONS_MANAGE,
+    )
 
     def get_queryset(self):
         user = self.request.user
         qs = CompetitionRegistration.objects.select_related("event__competition", "student", "charge", "result")
-        if not access.is_admin(user):
-            qs = qs.filter(student__in=access.students_for(user))
+        if self.action == "withdraw" and not can(user, Cap.COMPETITION_REGISTRATIONS_MANAGE):
+            qs = qs.filter(student__in=access.children_for(user))
+        else:
+            qs = qs.filter(registration_scope(user, "student"))
         if self.request.query_params.get("competition"):
             qs = qs.filter(event__competition_id=self.request.query_params["competition"])
         return qs
@@ -466,20 +635,21 @@ class CompetitionRegistrationViewSet(AuditActorMixin, mixins.ListModelMixin, mix
         serializer.is_valid(raise_exception=True)
         student = serializer.validated_data["student"]
         event = serializer.validated_data["event"]
-        if not access.is_admin(request.user) and not access.is_parent_of(request.user, student):
+        manager = can(request.user, Cap.COMPETITION_REGISTRATIONS_MANAGE)
+        if not manager and not access.is_parent_of(request.user, student):
             raise PermissionDenied("You can only register your own children.")
-        if event.competition.status == Competition.Status.DRAFT and not access.is_admin(request.user):
+        if event.competition.status == Competition.Status.DRAFT and not manager:
             raise ValidationError({"detail": "This competition is not open."})
         registration = competition_services.register(student, event, request.user,
                                                      serializer.validated_data.get("notes", ""))
         return Response(self.get_serializer(registration).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminOrParent])
+    @action(detail=True, methods=["post"])
     def withdraw(self, request, pk=None):
         registration = competition_services.withdraw(self.get_object(), request.user, request.data.get("reason", ""))
         return Response(self.get_serializer(registration).data)
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAcademyAdmin])
+    @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         registration = self.get_object()
         registration.status = CompetitionRegistration.Status.CONFIRMED
@@ -487,29 +657,30 @@ class CompetitionRegistrationViewSet(AuditActorMixin, mixins.ListModelMixin, mix
         return Response(self.get_serializer(registration).data)
 
 
-class CompetitionResultViewSet(AuditActorMixin, NoDestroyModelViewSet):
-    permission_classes = [IsAdminOrReadOnly]
+class CompetitionResultViewSet(ApiViewMixin, NoDestroyModelViewSet):
     serializer_class = s.CompetitionResultSerializer
+    capabilities = caps(read=REGISTRATION_READ, write=Cap.COMPETITION_RESULTS_MANAGE)
 
     def get_queryset(self):
-        user = self.request.user
         qs = CompetitionResult.objects.select_related("registration__student", "registration__event__competition")
-        if not access.is_admin(user):
-            qs = qs.filter(registration__student__in=access.students_for(user))
+        qs = qs.filter(registration_scope(self.request.user, "registration__student"))
         if self.request.query_params.get("competition"):
             qs = qs.filter(registration__event__competition_id=self.request.query_params["competition"])
         return qs
 
 
-class PayslipViewSet(AuditActorMixin, viewsets.ReadOnlyModelViewSet):
-    """Admins see all payslips; a coach sees only their own finalized payslips."""
+class PayslipViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
+    """Payroll staff see all payslips; a coach sees only their own finalized payslips."""
 
-    permission_classes = [IsAdminOrCoach]
     serializer_class = s.PayslipSerializer
+    capabilities = caps(read=(Cap.PAYROLL_VIEW_ALL, Cap.PAYROLL_VIEW_OWN))
 
     def get_queryset(self):
         user = self.request.user
         qs = Payslip.objects.select_related("run", "coach").prefetch_related("lines")
-        if access.is_admin(user):
+        if can(user, Cap.PAYROLL_VIEW_ALL):
             return qs
-        return qs.filter(coach=access.coach_of(user), run__status=PayrollRun.Status.FINALIZED)
+        coach = access.coach_of(user)
+        if coach is None:
+            return qs.none()
+        return qs.filter(coach=coach, run__status=PayrollRun.Status.FINALIZED)

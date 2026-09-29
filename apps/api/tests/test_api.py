@@ -130,10 +130,10 @@ class CoachApiTests(ApiTestCase):
                                  effective_from=self.today - datetime.timedelta(days=30))
         CoachRate.objects.create(coach=self.coach_b, rate_type="HOURLY", amount=Decimal("40"),
                                  effective_from=self.today - datetime.timedelta(days=30))
-        run = calculate_run(self.today.year, self.today.month, self.admin_user)
+        run = calculate_run(self.today.year, self.today.month, self.finance_user)
         client = self.client_for(self.coach_a_user)
         self.assertEqual(self.ids(client.get("/api/payslips/")), set())
-        finalize_run(run, self.admin_user)
+        finalize_run(run, self.super_user)
         mine = run.payslips.get(coach=self.coach_a)
         self.assertEqual(self.ids(client.get("/api/payslips/")), {mine.id})
 
@@ -147,11 +147,14 @@ class AdminApiTests(ApiTestCase):
         }, format="json")
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(Receipt.objects.filter(number=response.json()["receipt_number"]).exists())
-        void = self.client_for(self.admin_user).post(f"/api/payments/{response.json()['id']}/void/", {"reason": "Duplicate"})
+        # ADMIN may record payments but voiding is a finance action.
+        denied = self.client_for(self.admin_user).post(f"/api/payments/{response.json()['id']}/void/", {"reason": "Duplicate"})
+        self.assertEqual(denied.status_code, 403)
+        void = self.client_for(self.finance_user).post(f"/api/payments/{response.json()['id']}/void/", {"reason": "Duplicate"})
         self.assertEqual(void.json()["status"], "VOIDED")
 
     def test_reports(self):
-        client = self.client_for(self.admin_user)
+        client = self.client_for(self.super_user)
         for name in ("students", "attendance", "fees", "payments", "receipts", "competitions", "results", "payroll"):
             response = client.get(f"/api/reports/{name}/")
             self.assertEqual(response.status_code, 200, name)

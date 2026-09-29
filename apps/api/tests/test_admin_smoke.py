@@ -10,13 +10,11 @@ from apps.finance.services import add_charge, record_payment
 
 class AdminSmokeTests(AcademyTestCase):
     def test_every_admin_page_renders(self):
-        self.admin_user.is_staff = self.admin_user.is_superuser = True
-        self.admin_user.save()
-        self.client.force_login(self.admin_user)
+        self.client.force_login(self.super_user)
         charge = add_charge(self.student_1, "UNIFORM", "Uniform", "80.00")
         payment, receipt = record_payment("P", "80.00", "CASH", [(charge, "80.00")], actor=self.admin_user)
         assign_substitute(self.session_b, self.coach_a, replaces=self.coach_b, actor=self.admin_user)
-        fake_request = SimpleNamespace(user=self.admin_user)
+        fake_request = SimpleNamespace(user=self.super_user)
 
         for model, model_admin in admin.site._registry.items():
             opts = model._meta
@@ -35,12 +33,12 @@ class AdminSmokeTests(AcademyTestCase):
             reverse("admin:academy_trainingsession_substitute", args=[self.session_a.pk]),
             reverse("admin:finance_payment_void", args=[payment.pk]),
             reverse("receipt-print", args=[receipt.pk]),
+            reverse("admin:accounts_user_roles", args=[self.parent_1_user.pk]),
         ):
             self.assertEqual(self.client.get(url).status_code, 200, url)
 
     def test_admin_payment_form_issues_receipt(self):
-        self.admin_user.is_staff = self.admin_user.is_superuser = True
-        self.admin_user.save()
+        # ADMIN (front desk) may record payments through the admin site.
         self.client.force_login(self.admin_user)
         charge = add_charge(self.student_1, "REGISTRATION", "Registration fee", "100.00")
         form = {

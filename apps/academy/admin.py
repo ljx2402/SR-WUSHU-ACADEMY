@@ -2,11 +2,12 @@ import datetime
 
 from django import forms
 from django.contrib import admin, messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
 
+from apps.accounts.capabilities import Cap, can
 from apps.accounts.models import Coach
 
 from . import services
@@ -18,6 +19,7 @@ from .models import (
     Program,
     SessionCoach,
     Student,
+    StudentAccount,
     StudentStatusHistory,
     Team,
     TrainingClass,
@@ -61,7 +63,10 @@ class TrainingClassAdmin(NoDeleteMixin, admin.ModelAdmin):
     inlines = [ClassScheduleInline, ClassCoachInline]
     actions = ["generate_next_month_sessions"]
 
-    @admin.action(description="Generate sessions for the next 31 days from the timetable")
+    def has_generate_permission(self, request):
+        return can(request.user, Cap.SESSIONS_MANAGE)
+
+    @admin.action(description="Generate sessions for the next 31 days from the timetable", permissions=["generate"])
     def generate_next_month_sessions(self, request, queryset):
         start = timezone.localdate()
         end = start + datetime.timedelta(days=30)
@@ -84,6 +89,15 @@ class EnrollmentInline(NoDeleteMixin, admin.TabularInline):
     autocomplete_fields = ("training_class", "coach")
 
 
+class StudentAccountInline(admin.StackedInline):
+    model = StudentAccount
+    extra = 0
+    can_delete = False
+    autocomplete_fields = ("user",)
+    verbose_name = "student login"
+    verbose_name_plural = "student login (the user also needs the STUDENT role, assigned by a super admin)"
+
+
 class StatusHistoryInline(admin.TabularInline):
     model = StudentStatusHistory
     extra = 0
@@ -99,7 +113,7 @@ class StudentAdmin(NoDeleteMixin, admin.ModelAdmin):
     list_display = ("student_no", "full_name", "chinese_name", "gender", "date_of_birth", "join_date", "status")
     list_filter = ("status", "gender", "enrollments__training_class__category", "enrollments__training_class")
     search_fields = ("student_no", "full_name", "chinese_name", "ic_number", "guardianships__parent__full_name")
-    inlines = [GuardianshipInline, EnrollmentInline, StatusHistoryInline]
+    inlines = [GuardianshipInline, EnrollmentInline, StudentAccountInline, StatusHistoryInline]
     date_hierarchy = "join_date"
 
     def get_changeform_initial_data(self, request):
@@ -150,7 +164,13 @@ class TrainingSessionAdmin(NoDeleteMixin, admin.ModelAdmin):
                  name="academy_trainingsession_substitute"),
         ] + super().get_urls()
 
+    def render_change_form(self, request, context, *args, **kwargs):
+        context["can_assign_substitute"] = can(request.user, Cap.SUBSTITUTE_ASSIGN)
+        return super().render_change_form(request, context, *args, **kwargs)
+
     def assign_substitute_view(self, request, pk):
+        if not can(request.user, Cap.SUBSTITUTE_ASSIGN):
+            raise PermissionDenied
         session = TrainingSession.objects.get(pk=pk)
         form = SubstituteForm(request.POST or None)
         form.fields["replaces"].queryset = Coach.objects.filter(session_slots__session=session)
@@ -182,6 +202,16 @@ class SessionCoachAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         # Use the "Assign substitute" button on a session so access windows are set correctly.
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(StudentAccount)
+class StudentAccountAdmin(admin.ModelAdmin):
+    list_display = ("student", "user", "created_at")
+    search_fields = ("student__full_name", "student__student_no", "user__username")
+    autocomplete_fields = ("student", "user")
 
     def has_delete_permission(self, request, obj=None):
         return False

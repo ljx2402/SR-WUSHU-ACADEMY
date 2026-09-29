@@ -13,6 +13,7 @@ class AuditCategory(models.TextChoices):
     COMPETITION = "COMPETITION", "Competition"
     PAYROLL = "PAYROLL", "Payroll"
     ACCESS = "ACCESS", "Access"
+    SECURITY = "SECURITY", "Security & roles"
 
 
 class AuditLog(models.Model):

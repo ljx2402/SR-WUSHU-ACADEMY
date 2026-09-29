@@ -7,6 +7,7 @@ from apps.reports.views import ReportIndexView, ReportView
 from . import views
 
 router = DefaultRouter()
+router.register("users", views.UserViewSet, basename="user")
 router.register("parents", views.ParentViewSet, basename="parent")
 router.register("coaches", views.CoachViewSet, basename="coach")
 router.register("students", views.StudentViewSet, basename="student")

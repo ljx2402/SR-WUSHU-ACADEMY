@@ -1,0 +1,23 @@
+# Local PostgreSQL 16 for development and tests. Development credentials only;
+# override them with environment variables or a .env file (see .env.example).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sr_academy}
+      POSTGRES_USER: ${POSTGRES_USER:-sr_academy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sr_academy_dev}
+      TZ: UTC
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -1,0 +1,9 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>Changing roles is recorded in the audit log with your reason. <strong>{{ target.username }}</strong>
+  will be signed out of every browser session and all of their API tokens will be revoked.</p>
+<form method="post">{% csrf_token %}
+  <table>{{ form.as_table }}</table>
+  <input type="submit" value="Save roles">
+</form>
+{% endblock %}

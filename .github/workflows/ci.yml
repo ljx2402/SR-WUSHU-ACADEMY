@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  postgres:
+    name: Tests on PostgreSQL 16 (reference database)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sr_academy
+          POSTGRES_USER: sr_academy
+          POSTGRES_PASSWORD: sr_academy_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sr_academy -d sr_academy"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://sr_academy:sr_academy_ci@localhost:5432/sr_academy
+      REQUIRE_POSTGRES: "1"
+      DJANGO_SECRET_KEY: ci-only-not-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: System check
+        run: python manage.py check
+      - name: No missing migrations
+        run: python manage.py makemigrations --check --dry-run
+      - name: Migrate forward
+        run: python manage.py migrate --noinput
+      - name: Migrate every app backward to zero, then forward again
+        run: |
+          for app in payroll competitions finance attendance academy authtoken admin sessions accounts audit auth contenttypes; do
+            python manage.py migrate "$app" zero --noinput
+          done
+          left=$(psql "$DATABASE_URL" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name <> 'django_migrations'")
+          test "$left" = "0" || { echo "tables left after full rollback: $left"; exit 1; }
+          python manage.py migrate --noinput
+          python manage.py migrate --check
+      - name: Test suite
+        run: python manage.py test --noinput -v 2
+
+  sqlite:
+    name: Tests on SQLite (lightweight local option)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python manage.py test --noinput

@@ -6,24 +6,39 @@ Back office and app backend for SR Wushu Academy (Malaysia · MYR · Asia/Kuala_
 * **REST API** (`/api/`): backend for the **Parent App** and **Coach App** (and any
   integrations), with token authentication.
 
-Built with Django 5.2 and Django REST Framework. SQLite for development; PostgreSQL for production.
+Built with Django 5.2, Django REST Framework and **PostgreSQL 16** (the reference database;
+SQLite remains available as a lightweight local option).
 
-## Quick start
+## Quick start (PostgreSQL)
 
 ```bash
+cp .env.example .env                      # development credentials; never commit .env
+docker compose up -d db                   # PostgreSQL 16 on localhost:5432
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+set -a; . ./.env; set +a                  # exports DATABASE_URL
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py setup_academy      # programs + starter price list
-.venv/bin/python manage.py createsuperuser    # set role "Admin" for the account
+.venv/bin/python manage.py createsuperuser    # becomes SUPER_ADMIN automatically
 .venv/bin/python manage.py runserver
 ```
 
-Open http://127.0.0.1:8000/admin/. Run the tests with `.venv/bin/python manage.py test`.
+Without Docker, any local PostgreSQL 16 works. Create a role with `CREATEDB` (the tests create
+`test_<dbname>`) and point `DATABASE_URL` at it. Without `DATABASE_URL` (or `POSTGRES_DB`) Django
+falls back to `db.sqlite3`.
 
-For production set `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false`, `DJANGO_ALLOWED_HOSTS`, the
-`POSTGRES_*` variables (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`,
-`POSTGRES_PORT`) and install `psycopg`. Receipt header details come from `ACADEMY_ADDRESS`,
+Open http://127.0.0.1:8000/admin/. Run the tests with `.venv/bin/python manage.py test`. With
+`REQUIRE_POSTGRES=1` the run fails if it is not really on PostgreSQL 16. A handful of
+database-behaviour tests (numeric overflow, row locking) only run on PostgreSQL. CI
+(`.github/workflows/ci.yml`) runs the whole suite on PostgreSQL 16 and checks that every migration
+rolls back to an empty database and applies again.
+
+Database settings: `DATABASE_URL` (preferred), or the legacy `POSTGRES_DB` / `POSTGRES_USER` /
+`POSTGRES_PASSWORD` / `POSTGRES_HOST` / `POSTGRES_PORT`; `DB_CONN_MAX_AGE` (default 60 s);
+`DB_DISABLE_SERVER_SIDE_CURSORS=true` behind a transaction-mode pooler such as PgBouncer.
+
+For production also set `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `DJANGO_ALLOWED_HOSTS`
+(full hardening is a later phase). Receipt header details come from `ACADEMY_ADDRESS`,
 `ACADEMY_PHONE`, `ACADEMY_EMAIL` and `ACADEMY_REGISTRATION_NO`.
 
 Scheduled jobs (e.g. cron):
@@ -50,20 +65,26 @@ python manage.py generate_monthly_fees          # 1st of the month: bill monthly
 | Coach payroll | Hourly, per-session, monthly and substitute rates (per coach, optionally per class), allowances, bonuses, deductions; monthly payroll run → payslips; finalize to lock. |
 | Reports | Students, attendance, fees, payments, receipts, competitions, results, payroll, as JSON or CSV (Excel-friendly, including Chinese names). |
 
-## Access rules
+## Roles and access
 
-| | Admin | Coach | Substitute coach | Parent |
-|---|---|---|---|---|
-| Students | all | current members of own classes: training info, medical notes, emergency contacts | roster of the covered session only | own children only |
-| Classes / sessions | all | own classes and their sessions | **only the one session**, from 24 h before start to 24 h after end | children's classes (no rosters) |
-| Attendance | all | own classes | that session only, inside the window | own children |
-| Fees, payments, receipts | all | none | none | own children |
-| Payroll | all | own finalized payslips | none (no payroll admin) | none |
-| Academy administration | yes | no | no | no |
+Six roles: `SUPER_ADMIN`, `ADMIN`, `FINANCE_ADMIN`, `COACH`, `PARENT`, `STUDENT`. A user may hold
+several. Every API action, service and admin page asks `can(user, capability)` against the single
+map in `apps/accounts/capabilities.py`. `apps/academy/access.py` then limits the records to the
+ones the user is related to. See **[docs/ROLES_AND_PERMISSIONS.md](docs/ROLES_AND_PERMISSIONS.md)**
+for the full matrix. Approved business rules for later phases are in
+**[docs/BUSINESS_DECISIONS.md](docs/BUSINESS_DECISIONS.md)**.
 
-The substitute window is configurable in `config/settings.py` (`SUBSTITUTE_ACCESS_HOURS_BEFORE/AFTER`).
-Admins can also revoke a substitute early. The rules live in `apps/academy/access.py` and are used
-by every API endpoint.
+| | Admin | Finance admin | Coach | Substitute coach | Parent | Student |
+|---|---|---|---|---|---|---|
+| Students | all | directory only | current members of own classes: training info, medical notes, emergency contacts | roster of the covered session only | own children | self |
+| Classes / sessions | all | none | own classes and their sessions | **only the one session**, from 24 h before start to 24 h after end | children's timetable (no rosters) | own timetable |
+| Attendance | all | none | own classes | that session only, inside the window | own children | self |
+| Fees, payments, receipts | view + record payments | full | none | none | own children | not yet (P1) |
+| Payroll | none | prepare | own finalized payslips | none | none | none |
+| Users and roles | no | no | no | no | no | no |
+
+Only `SUPER_ADMIN` manages users and roles and finalizes payroll. The substitute window is
+configurable in `config/settings.py` (`SUBSTITUTE_ACCESS_HOURS_BEFORE/AFTER`).
 
 ## How the business rules are enforced
 
@@ -88,11 +109,12 @@ Set `LATE_COUNTS_AS_PRESENT = False` to count Late as not attended.
 ## API overview
 
 Authenticate with `POST /api/auth/token/` (`username`, `password`) and send
-`Authorization: Token <key>`.
+`Authorization: Token <key>`. A role change revokes the user's tokens; they sign in again.
 
 | Endpoint | Who | Purpose |
 |---|---|---|
-| `GET /api/me/` | all | Role, profile, children (parent), classes and open substitute sessions (coach) |
+| `GET /api/me/` | all | Roles, capabilities, profile, children (parent), classes and open substitute sessions (coach), own record (student) |
+| `/api/users/` | super admin | Accounts; `POST …/{id}/roles/` with `roles` and `reason` |
 | `/api/students/` | all (scoped) | List/view; admin create/update. `…/{id}/attendance-summary/`, `…/{id}/history/`, `…/{id}/change-status/`, `…/{id}/guardians/` |
 | `/api/enrollments/` | admin | Enroll; `…/{id}/end/`, `…/{id}/transfer/` |
 | `/api/classes/` | all (scoped) | `…/{id}/students/`, `…/{id}/generate-sessions/` |
@@ -105,7 +127,7 @@ Authenticate with `POST /api/auth/token/` (`username`, `password`) and send
 | `/api/competition-registrations/` | admin, parent | Parent registers own child; `…/{id}/withdraw/`, `…/{id}/confirm/` |
 | `/api/competition-results/` | scoped | Results and medals |
 | `/api/payslips/` | admin, coach | Payslips |
-| `/api/reports/{name}/` | admin | `students`, `attendance`, `fees`, `payments`, `receipts`, `competitions`, `results`, `payroll`; `?start=&end=`, `?export=csv` |
+| `/api/reports/{name}/` | per report capability | `students`, `attendance`, `fees`, `payments`, `receipts`, `competitions`, `results`, `payroll`; `?start=&end=`, `?export=csv` |
 
 Example: a coach submits attendance.
 
@@ -117,6 +139,9 @@ POST /api/sessions/42/attendance/
 Changing a record that already exists requires `"reason": "..."`.
 
 ## Payroll rules
+
+> Current behaviour, to be replaced in P6: all coaches will be paid per completed session only
+> (no monthly salary), and only `SUPER_ADMIN` can finalize (already enforced).
 
 For each session a coach actually taught (not replaced, not cancelled):
 
@@ -135,7 +160,8 @@ payslips in the app.
 ```
 config/            settings, URLs
 apps/audit/        append-only audit log + automatic change tracking
-apps/accounts/     users (Admin / Coach / Parent), parent and coach profiles
+apps/accounts/     users, roles & capabilities (capabilities.py), role changes (services.py),
+                   admin permission backend, parent and coach profiles
 apps/academy/      programs, teams, classes, timetables, students, guardians, enrollments,
                    sessions, substitute assignment, access rules (access.py)
 apps/attendance/   attendance records, percentage calculation
@@ -145,6 +171,10 @@ apps/payroll/      coach rates, adjustments, payroll runs, payslips
 apps/reports/      report builders + JSON/CSV endpoint
 apps/api/          REST API for the Parent and Coach apps
 docs/FEES_GUIDE.md step-by-step guide for keying in fees
+docs/ROLES_AND_PERMISSIONS.md   roles, capability matrix, role changes, migration
+docs/BUSINESS_DECISIONS.md      approved business rules for later phases
+docker-compose.yml local PostgreSQL 16
+.github/workflows/ci.yml        PostgreSQL 16 + SQLite test runs, migration round-trip
 ```
 
 ## Not included yet

@@ -12,7 +12,8 @@ from apps.academy.models import (
     TrainingClass,
     TrainingSession,
 )
-from apps.accounts.models import Coach, Parent
+from apps.accounts.capabilities import Cap, Role, can
+from apps.accounts.models import Coach, Parent, User
 from apps.attendance.models import AttendanceRecord, AttendanceStatus
 from apps.audit.models import AuditLog
 from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
@@ -27,9 +28,27 @@ class ParentSerializer(serializers.ModelSerializer):
 
 
 class CoachSerializer(serializers.ModelSerializer):
+    """Bank / EPF / SOCSO fields exist only for users with ``coaches.bank_details``.
+    Users with bank access but not ``coaches.manage`` can edit only those fields."""
+
+    BANK_FIELDS = ["bank_name", "bank_account_no", "epf_no", "socso_no"]
+
     class Meta:
         model = Coach
-        fields = ["id", "full_name", "phone", "email", "specialties", "join_date", "is_active"]
+        fields = ["id", "full_name", "phone", "email", "specialties", "join_date", "is_active",
+                  "bank_name", "bank_account_no", "epf_no", "socso_no"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not can(user, Cap.COACHES_BANK_DETAILS):
+            for name in self.BANK_FIELDS:
+                self.fields.pop(name)
+        if not can(user, Cap.COACHES_MANAGE):
+            for name, field in self.fields.items():
+                if name not in self.BANK_FIELDS:
+                    field.read_only = True
 
 
 class GuardianSerializer(serializers.ModelSerializer):
@@ -84,12 +103,21 @@ class StudentSerializer(serializers.ModelSerializer):
         return EnrollmentSerializer(obj.current_enrollments(), many=True).data
 
 
-class ParentStudentSerializer(StudentSerializer):
-    """For parents: guardians are shown as contacts only (no IC, address, ...)."""
+class OwnStudentSerializer(StudentSerializer):
+    """A parent's own child, or a student's own record: personal details, but
+    guardians are shown as contacts only (no IC, address, ...)."""
 
     guardians = EmergencyContactSerializer(source="guardianships", many=True, read_only=True)
 
 
+class StudentDirectorySerializer(serializers.ModelSerializer):
+    """Finance directory: enough to identify a student and reach the family."""
+
+    guardians = EmergencyContactSerializer(source="guardianships", many=True, read_only=True)
+
+    class Meta:
+        model = Student
+        fields = ["id", "student_no", "full_name", "chinese_name", "status", "guardians"]
 
 
 class RosterStudentSerializer(serializers.ModelSerializer):
@@ -327,3 +355,20 @@ class PayslipSerializer(serializers.ModelSerializer):
         model = Payslip
         fields = ["id", "year", "month", "run_status", "coach", "coach_name", "regular_sessions", "substitute_sessions",
                   "hours", "gross_pay", "total_deductions", "net_pay", "lines"]
+
+
+class UserSerializer(serializers.ModelSerializer):
+    roles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "first_name", "last_name", "email", "is_active", "roles", "last_login"]
+
+    def get_roles(self, obj):
+        names = [g.name for g in obj.groups.all() if g.name in Role.values]
+        return [r for r in Role.values if r in names]
+
+
+class RoleChangeSerializer(serializers.Serializer):
+    roles = serializers.ListField(child=serializers.ChoiceField(choices=Role.choices), allow_empty=True)
+    reason = serializers.CharField()

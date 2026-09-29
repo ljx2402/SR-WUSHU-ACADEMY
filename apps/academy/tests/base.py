@@ -4,7 +4,17 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.academy.models import ClassCoach, Enrollment, Guardianship, Program, Student, TrainingClass, TrainingSession
+from apps.accounts.capabilities import Role
 from apps.accounts.models import Coach, Parent, User
+from apps.accounts.services import set_roles
+
+
+def make_user(username, *roles):
+    """Create a user and give them roles the only supported way (set_roles)."""
+    user = User.objects.create_user(username, password="x")
+    if roles:
+        set_roles(user, roles, actor=None, reason="test setup")
+    return user
 
 
 class AcademyTestCase(TestCase):
@@ -13,12 +23,14 @@ class AcademyTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.today = timezone.localdate()
-        cls.admin_user = User.objects.create_user("admin", password="x", role=User.Role.ADMIN)
+        cls.super_user = make_user("super", Role.SUPER_ADMIN)
+        cls.admin_user = make_user("admin", Role.ADMIN)
+        cls.finance_user = make_user("finance", Role.FINANCE_ADMIN)
         cls.program = Program.objects.create(code="taolu", name="Wushu Taolu")
 
-        cls.coach_a_user = User.objects.create_user("coach_a", password="x", role=User.Role.COACH)
+        cls.coach_a_user = make_user("coach_a", Role.COACH)
         cls.coach_a = Coach.objects.create(user=cls.coach_a_user, full_name="Coach A", phone="011")
-        cls.coach_b_user = User.objects.create_user("coach_b", password="x", role=User.Role.COACH)
+        cls.coach_b_user = make_user("coach_b", Role.COACH)
         cls.coach_b = Coach.objects.create(user=cls.coach_b_user, full_name="Coach B", phone="012")
 
         cls.class_a = TrainingClass.objects.create(code="a", name="Class A", category="SCHOOL", program=cls.program)
@@ -27,9 +39,9 @@ class AcademyTestCase(TestCase):
         ClassCoach.objects.create(training_class=cls.class_a, coach=cls.coach_a, start_date=start)
         ClassCoach.objects.create(training_class=cls.class_b, coach=cls.coach_b, start_date=start)
 
-        cls.parent_1_user = User.objects.create_user("parent1", password="x", role=User.Role.PARENT)
+        cls.parent_1_user = make_user("parent1", Role.PARENT)
         cls.parent_1 = Parent.objects.create(user=cls.parent_1_user, full_name="Parent One", phone="0123")
-        cls.parent_2_user = User.objects.create_user("parent2", password="x", role=User.Role.PARENT)
+        cls.parent_2_user = make_user("parent2", Role.PARENT)
         cls.parent_2 = Parent.objects.create(user=cls.parent_2_user, full_name="Parent Two", phone="0124")
 
         cls.student_1 = cls.make_student("S1", "Ali", cls.parent_1, cls.class_a)
