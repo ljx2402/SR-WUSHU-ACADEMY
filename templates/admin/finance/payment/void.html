@@ -1,0 +1,10 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>Voiding keeps the original receipt on record, marks it VOID and makes the charges payable again.
+  This cannot be undone.</p>
+<p><strong>{{ payment }}</strong>{% if payment.receipt %} – receipt {{ payment.receipt.number }}{% endif %}</p>
+<form method="post">{% csrf_token %}
+  <table>{{ form.as_table }}</table>
+  <input type="submit" value="Void payment" class="deletelink">
+</form>
+{% endblock %}
