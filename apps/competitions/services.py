@@ -1,9 +1,11 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from apps.academy import access
 from apps.accounts.capabilities import Cap, can
 from apps.audit.context import audit_context
+from apps.finance import services as finance_services
 from apps.finance.models import Charge, FeeType
 
 from .models import CompetitionRegistration
@@ -14,7 +16,10 @@ def register(student, event, actor, notes=""):
     """Register a student for a competition event.
 
     Parents may only register their own children, and only while the
-    competition is open. A charge for the event fee is created automatically.
+    competition is open. Competition fees are paid at registration: a charge
+    and an issued competition invoice (due today) are created, and the
+    registration stays PENDING (awaiting payment) until that invoice is paid,
+    when it becomes CONFIRMED automatically. A free event is confirmed at once.
     """
     competition = event.competition
     is_manager = can(actor, Cap.COMPETITION_REGISTRATIONS_MANAGE)
@@ -42,18 +47,15 @@ def register(student, event, actor, notes=""):
     with audit_context(actor, "Competition registration"):
         charge = None
         if event.fee > 0:
-            charge = Charge.objects.create(
-                student=student,
-                fee_type=FeeType.COMPETITION,
-                description=f"{competition.name} – {event.name}",
-                unit_amount=event.fee,
-                due_date=competition.registration_deadline,
-                created_by=actor,
+            charge = finance_services._create_charge(
+                student, FeeType.COMPETITION, f"{competition.name} – {event.name}", event.fee, actor,
+                due_date=timezone.localdate(),
             )
+            finance_services.create_competition_invoice(charge, actor)
         return CompetitionRegistration.objects.create(
             event=event,
             student=student,
-            status=CompetitionRegistration.Status.CONFIRMED if is_manager else CompetitionRegistration.Status.PENDING,
+            status=CompetitionRegistration.Status.PENDING if charge else CompetitionRegistration.Status.CONFIRMED,
             registered_by=actor,
             charge=charge,
             notes=notes,
@@ -74,8 +76,30 @@ def withdraw(registration, actor, reason="", status=CompetitionRegistration.Stat
     with audit_context(actor, reason or "Withdrawn"):
         registration.status = status
         registration.save()
-        charge = registration.charge
-        if charge is not None and not charge.valid_allocations().exists():
-            charge.status = Charge.Status.CANCELLED
-            charge.save()
+        if registration.charge is not None:
+            # Unpaid: the competition invoice is voided and the charge cancelled.
+            # Paid: nothing happens financially. Competition fees are
+            # non-refundable; any exceptional refund is a separate, authorized act.
+            finance_services.cancel_unpaid_competition_charge(
+                registration.charge, reason or f"Registration {status.lower()}", actor)
+    return registration
+
+
+def is_paid(registration):
+    return registration.charge is None or registration.charge.status == Charge.Status.PAID
+
+
+@transaction.atomic
+def confirm(registration, actor):
+    """Manual confirmation by staff. Never confirms an unpaid registration."""
+    if not can(actor, Cap.COMPETITION_REGISTRATIONS_MANAGE):
+        raise PermissionDenied("You do not have permission to perform this action.")
+    registration = CompetitionRegistration.objects.select_for_update().get(pk=registration.pk)
+    if registration.status in CompetitionRegistration.INACTIVE:
+        raise ValidationError("A withdrawn or rejected registration cannot be confirmed.")
+    if not is_paid(registration):
+        raise ValidationError("The competition fee has not been paid; the registration cannot be confirmed.")
+    with audit_context(actor, "Registration confirmed"):
+        registration.status = CompetitionRegistration.Status.CONFIRMED
+        registration.save()
     return registration

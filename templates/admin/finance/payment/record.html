@@ -1,0 +1,17 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>Record money received. Apply it to one or more issued invoices of <strong>one family</strong>; the amounts must add up
+  to the total received (overpayment is not accepted). A receipt is issued automatically.</p>
+<form method="post">{% csrf_token %}
+  {{ form.non_field_errors }}
+  <table>{{ form.as_table }}</table>
+  <h2>Apply to invoices</h2>
+  {{ rows.management_form }}
+  {{ rows.non_form_errors }}
+  <table>
+    <tr><th>Invoice</th><th>Amount (RM)</th></tr>
+    {% for row in rows %}<tr><td>{{ row.invoice }} {{ row.invoice.errors }}</td><td>{{ row.amount }} {{ row.amount.errors }}</td></tr>{% endfor %}
+  </table>
+  <input type="submit" value="Record payment">
+</form>
+{% endblock %}

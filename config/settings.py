@@ -147,8 +147,9 @@ ACADEMY = {
     "PHONE": os.environ.get("ACADEMY_PHONE", ""),
     "EMAIL": os.environ.get("ACADEMY_EMAIL", ""),
     "REGISTRATION_NO": os.environ.get("ACADEMY_REGISTRATION_NO", ""),
-    # Receipt numbers look like SRWA-2026-000123 and restart each calendar year.
-    "RECEIPT_PREFIX": "SRWA",
+    # Official document numbers look like INV-2026-000123 and restart each calendar year.
+    # Receipts keep the existing SRWA prefix.
+    "DOCUMENT_PREFIXES": {"INVOICE": "INV", "PAYMENT": "PAY", "RECEIPT": "SRWA", "REFUND": "RFD"},
     # How long before the session a substitute coach gains access, and how long
     # after the session ends the access remains (to finish attendance entry).
     "SUBSTITUTE_ACCESS_HOURS_BEFORE": 24,

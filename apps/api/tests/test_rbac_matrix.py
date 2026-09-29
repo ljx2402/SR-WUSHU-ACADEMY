@@ -19,6 +19,7 @@ from apps.accounts.capabilities import Role
 from apps.competitions.models import Competition, CompetitionEvent
 from apps.competitions.services import register
 from apps.finance.services import add_charge, record_payment
+from apps.finance.tests.helpers import issued_invoice
 
 S, A, F, C, P, T = Role.SUPER_ADMIN, Role.ADMIN, Role.FINANCE_ADMIN, Role.COACH, Role.PARENT, Role.STUDENT
 ALL = (S, A, F, C, P, T)
@@ -40,7 +41,10 @@ class RbacMatrixTests(AcademyTestCase):
 
         cls.charge = add_charge(cls.student_1, "UNIFORM", "Uniform", "80.00")
         cls.open_charge = add_charge(cls.student_1, "OTHER", "Misc", "30.00")
-        cls.payment, _ = record_payment("Parent One", "80.00", "CASH", [(cls.charge, "80.00")], parent=cls.parent_1)
+        cls.draft_charge = add_charge(cls.student_1, "OTHER", "To invoice", "10.00")
+        cls.paid_invoice = issued_invoice([cls.charge])
+        cls.open_invoice = issued_invoice([cls.open_charge])
+        cls.payment, _ = record_payment([(cls.paid_invoice, "80.00")], "CASH")
         cls.competition = Competition.objects.create(
             name="State Open", start_date=cls.today + datetime.timedelta(days=30),
             end_date=cls.today + datetime.timedelta(days=30),
@@ -99,8 +103,8 @@ class RbacMatrixTests(AcademyTestCase):
             ("monthly billing", "post", "/api/charges/generate-monthly/", {"year": today.year, "month": today.month},
              only({S: 201, F: 201})),
             ("record payment", "post", "/api/payments/",
-             {"parent": self.parent_1.pk, "payer_name": "Parent One", "amount": "30.00", "method": "CASH",
-              "allocations": [{"charge": self.open_charge.pk, "amount": "30.00"}]}, only({S: 201, A: 201, F: 201})),
+             {"payer_name": "Parent One", "amount": "30.00", "method": "CASH",
+              "allocations": [{"invoice": self.open_invoice.pk, "amount": "30.00"}]}, only({S: 201, A: 201, F: 201})),
             ("void payment", "post", f"/api/payments/{self.payment.pk}/void/", {"reason": "entered twice"},
              only({S: 200, F: 200})),
             ("list receipts", "get", "/api/receipts/", None, only({S: 200, A: 200, F: 200, P: 200})),
@@ -156,7 +160,8 @@ class RbacMatrixTests(AcademyTestCase):
         client = APIClient()
         client.force_authenticate(self.finance_user)
         body = client.get(f"/api/students/{self.student_1.pk}/").json()
-        self.assertEqual(set(body), {"id", "student_no", "full_name", "chinese_name", "status", "guardians"})
+        self.assertEqual(set(body), {"id", "student_no", "full_name", "chinese_name", "status", "family",
+                                     "family_name", "guardians"})  # family: needed to group family invoices
 
     def test_coach_bank_details_only_for_finance(self):
         self.coach_a.bank_account_no = "7890123456"

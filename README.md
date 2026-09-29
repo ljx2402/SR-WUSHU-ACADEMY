@@ -46,6 +46,7 @@ Scheduled jobs (e.g. cron):
 ```bash
 python manage.py generate_sessions --days 14    # daily: create sessions from class timetables
 python manage.py generate_monthly_fees          # 1st of the month: bill monthly class fees
+python manage.py generate_invoices              # then: one draft invoice per family (--issue to issue)
 ```
 
 ## What's in it
@@ -53,15 +54,16 @@ python manage.py generate_monthly_fees          # 1st of the month: bill monthly
 | Area | Features |
 |---|---|
 | Students | Personal info, parents (many-to-many), class, team, coach, join date, status. Status history kept; students are never deleted; every change is in the audit log. |
-| Parents | One parent → many children; one child → many parents. Relationship, primary / emergency / billing contact. |
+| Parents & families | One parent → many children; one child → many parents. Relationship, primary / emergency contact. Siblings are grouped explicitly into a **Family** (household) for invoicing; there is no bill-to parent. |
 | Classes | School / Additional / Elite; programs (Wushu Taolu, Sanda, Taiji, Changquan, Nanquan, Weapons); teams; weekly timetable with several slots per week; several coaches per class, several classes per coach. |
 | Class membership | Dated enrollments. Transfers and withdrawals end the old membership rather than removing it, so past rosters stay correct. |
 | Training sessions | Generated from the timetable; each session records which coaches taught it. |
 | Substitute coaches | Admin assigns a substitute to one session. See the access rules below. |
 | Attendance | Present / Absent / Late / Excused. Changes after first entry need a reason and are audited. Attendance % per student, class or period. |
 | Fees | Per-class fee rates with effective dates (monthly or per-session), per-student fee plans and discounts, automatic monthly billing, one-off charges (registration, uniform, weapons, competition, other). See **[docs/FEES_GUIDE.md](docs/FEES_GUIDE.md)**. |
-| Payments & receipts | Payments allocated to charges, official receipts with yearly numbering (`SRWA-2026-000001`), printable receipt page, void with reason. |
-| Competitions | Competitions with multiple events (Changquan, Nanquan, Jianshu, Daoshu, Gunshu, Qiangshu, Nandao, ...), age and gender eligibility, deadlines, parent self-registration in the app, automatic fee charge, results and medals. |
+| Invoices | One invoice per family covering all its children (`INV-2026-000001`), draft → issued → partially paid → paid / void, frozen snapshot of each student's charges, printable. See **[docs/FINANCE_ARCHITECTURE.md](docs/FINANCE_ARCHITECTURE.md)**. |
+| Payments & receipts | Payments (`PAY-2026-…`) applied to issued invoices under row locks, one payment across several invoices of a family, partial payments, idempotency keys, official receipts (`SRWA-2026-…`) listing student and invoice per line, void with reason, exceptional refunds (`RFD-2026-…`) with reason. |
+| Competitions | Competitions with multiple events (Changquan, Nanquan, Jianshu, Daoshu, Gunshu, Qiangshu, Nandao, ...), age and gender eligibility, deadlines, parent self-registration in the app, results and medals. Fees are paid at registration: the entry is confirmed only once its competition invoice is paid; fees are non-refundable. |
 | Coach payroll | Hourly, per-session, monthly and substitute rates (per coach, optionally per class), allowances, bonuses, deductions; monthly payroll run → payslips; finalize to lock. |
 | Reports | Students, attendance, fees, payments, receipts, competitions, results, payroll, as JSON or CSV (Excel-friendly, including Chinese names). |
 
@@ -120,14 +122,17 @@ Authenticate with `POST /api/auth/token/` (`username`, `password`) and send
 | `/api/classes/` | all (scoped) | `…/{id}/students/`, `…/{id}/generate-sessions/` |
 | `/api/sessions/` | all (scoped) | `…/{id}/roster/`, `…/{id}/attendance/` (GET, POST), `…/{id}/assign-substitute/`, `…/{id}/revoke-substitute/` |
 | `/api/attendance/` | scoped | Attendance records; `…/{id}/history/` |
-| `/api/charges/` | admin, parent | Fees owed; `?outstanding=1`; admin: create, `…/{id}/cancel/`, `generate-monthly/` |
-| `/api/payments/` | admin, parent | Admin records a payment (issues receipt); `…/{id}/void/` |
-| `/api/receipts/` | admin, parent | Receipt content; printable page at `/receipts/{id}/` |
+| `/api/charges/` | staff, parent | Fees owed; `?outstanding=1`; finance: create, `…/{id}/cancel/`, `generate-monthly/` |
+| `/api/families/` | staff, parent | Households; staff move students between families |
+| `/api/invoices/` | staff, parent | Family invoices; finance: create draft, `…/{id}/issue/`, `…/{id}/void/`, `generate-drafts/`; printable at `/invoices/{id}/` |
+| `/api/payments/` | staff, parent | Admin/finance record a payment against invoices (`Idempotency-Key` supported; receipt issued); `…/{id}/void/` (finance), `…/{id}/refund/` |
+| `/api/receipts/` | staff, parent | Receipt content; printable page at `/receipts/{id}/` |
+| `/api/refunds/` | staff, parent | Exceptional refund records |
 | `/api/competitions/`, `/api/competition-events/` | all | Open competitions and events |
 | `/api/competition-registrations/` | admin, parent | Parent registers own child; `…/{id}/withdraw/`, `…/{id}/confirm/` |
 | `/api/competition-results/` | scoped | Results and medals |
 | `/api/payslips/` | admin, coach | Payslips |
-| `/api/reports/{name}/` | per report capability | `students`, `attendance`, `fees`, `payments`, `receipts`, `competitions`, `results`, `payroll`; `?start=&end=`, `?export=csv` |
+| `/api/reports/{name}/` | per report capability | `students`, `attendance`, `fees`, `invoices`, `payments`, `receipts`, `refunds`, `competitions`, `results`, `payroll`; `?start=&end=`, `?export=csv` |
 
 Example: a coach submits attendance.
 
@@ -165,12 +170,14 @@ apps/accounts/     users, roles & capabilities (capabilities.py), role changes (
 apps/academy/      programs, teams, classes, timetables, students, guardians, enrollments,
                    sessions, substitute assignment, access rules (access.py)
 apps/attendance/   attendance records, percentage calculation
-apps/finance/      class fees, fee plans, charges, payments, receipts
+apps/finance/      class fees, fee plans, charges, family invoices, payments, receipts, refunds,
+                   document numbering, money rules (money.py), record scoping (access.py)
 apps/competitions/ competitions, events, registrations, results
 apps/payroll/      coach rates, adjustments, payroll runs, payslips
 apps/reports/      report builders + JSON/CSV endpoint
 apps/api/          REST API for the Parent and Coach apps
-docs/FEES_GUIDE.md step-by-step guide for keying in fees
+docs/FEES_GUIDE.md step-by-step guide for keying in fees, invoicing and payments
+docs/FINANCE_ARCHITECTURE.md    charges → invoices → payments → receipts, families, locking
 docs/ROLES_AND_PERMISSIONS.md   roles, capability matrix, role changes, migration
 docs/BUSINESS_DECISIONS.md      approved business rules for later phases
 docker-compose.yml local PostgreSQL 16

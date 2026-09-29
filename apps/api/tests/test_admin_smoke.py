@@ -2,17 +2,19 @@ from types import SimpleNamespace
 
 from django.contrib import admin
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.academy.services import assign_substitute
 from apps.academy.tests.base import AcademyTestCase
 from apps.finance.services import add_charge, record_payment
+from apps.finance.tests.helpers import issued_invoice
 
 
 class AdminSmokeTests(AcademyTestCase):
     def test_every_admin_page_renders(self):
         self.client.force_login(self.super_user)
-        charge = add_charge(self.student_1, "UNIFORM", "Uniform", "80.00")
-        payment, receipt = record_payment("P", "80.00", "CASH", [(charge, "80.00")], actor=self.admin_user)
+        invoice = issued_invoice([add_charge(self.student_1, "UNIFORM", "Uniform", "80.00")])
+        payment, receipt = record_payment([(invoice, "80.00")], "CASH", self.admin_user)
         assign_substitute(self.session_b, self.coach_a, replaces=self.coach_b, actor=self.admin_user)
         fake_request = SimpleNamespace(user=self.super_user)
 
@@ -32,26 +34,31 @@ class AdminSmokeTests(AcademyTestCase):
         for url in (
             reverse("admin:academy_trainingsession_substitute", args=[self.session_a.pk]),
             reverse("admin:finance_payment_void", args=[payment.pk]),
+            reverse("admin:finance_payment_refund", args=[payment.pk]),
+            reverse("admin:finance_invoice_void", args=[invoice.pk]),
+            reverse("admin:finance_invoice_generate"),
+            reverse("invoice-print", args=[invoice.pk]),
             reverse("receipt-print", args=[receipt.pk]),
             reverse("admin:accounts_user_roles", args=[self.parent_1_user.pk]),
         ):
             self.assertEqual(self.client.get(url).status_code, 200, url)
 
     def test_admin_payment_form_issues_receipt(self):
-        # ADMIN (front desk) may record payments through the admin site.
+        # ADMIN (front desk) may record payments through the admin site; it goes through record_payment.
         self.client.force_login(self.admin_user)
         charge = add_charge(self.student_1, "REGISTRATION", "Registration fee", "100.00")
+        invoice = issued_invoice([charge])
         form = {
-            "parent": self.parent_1.pk, "payer_name": "Parent One", "amount": "100.00", "method": "CASH",
-            "reference": "", "received_on": self.today.isoformat(), "notes": "",
-            "allocations-TOTAL_FORMS": "1", "allocations-INITIAL_FORMS": "0",
-            "allocations-MIN_NUM_FORMS": "0", "allocations-MAX_NUM_FORMS": "1000",
-            "allocations-0-charge": charge.pk, "allocations-0-amount": "100.00",
+            "amount": "100.00", "method": "CASH", "reference": "", "payer_name": "Parent One", "notes": "",
+            "received_at": timezone.localtime().strftime("%Y-%m-%d %H:%M:%S"),
+            "rows-TOTAL_FORMS": "1", "rows-INITIAL_FORMS": "0", "rows-MIN_NUM_FORMS": "0", "rows-MAX_NUM_FORMS": "1000",
+            "rows-0-invoice": invoice.pk, "rows-0-amount": "100.00",
         }
-        wrong = self.client.post(reverse("admin:finance_payment_add"), {**form, "amount": "90.00"})
+        url = reverse("admin:finance_payment_add")
+        wrong = self.client.post(url, {**form, "amount": "90.00"})
         self.assertEqual(wrong.status_code, 200)  # form redisplayed with the mismatch error
-        self.assertContains(wrong, "Allocations total RM 100.00")
-        response = self.client.post(reverse("admin:finance_payment_add"), form)
+        self.assertContains(wrong, "does not match the payment amount")
+        response = self.client.post(url, form)
         self.assertEqual(response.status_code, 302)
         charge.refresh_from_db()
         self.assertEqual(charge.status, "PAID")

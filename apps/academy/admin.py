@@ -15,6 +15,7 @@ from .models import (
     ClassCoach,
     ClassSchedule,
     Enrollment,
+    Family,
     Guardianship,
     Program,
     SessionCoach,
@@ -108,9 +109,52 @@ class StatusHistoryInline(admin.TabularInline):
         return False
 
 
+class FamilyStudentInline(admin.TabularInline):
+    model = Student
+    fields = ("student_no", "full_name", "status")
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+    show_change_link = True
+    verbose_name_plural = "students (move a student here from the student's page)"
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Family)
+class FamilyAdmin(NoDeleteMixin, admin.ModelAdmin):
+    """Households for invoicing. Siblings are grouped here explicitly; nothing
+    is inferred from shared parents. There is no bill-to parent."""
+
+    list_display = ("name", "id", "student_count", "is_active")
+    list_filter = ("is_active",)
+    search_fields = ("name", "students__full_name", "students__student_no")
+    inlines = [FamilyStudentInline]
+    actions = ["draft_invoice"]
+
+    @admin.display(description="Students")
+    def student_count(self, obj):
+        return obj.students.count()
+
+    def has_invoice_permission(self, request):
+        return can(request.user, Cap.FINANCE_INVOICES_MANAGE)
+
+    @admin.action(description="Draft a family invoice from all uninvoiced charges", permissions=["invoice"])
+    def draft_invoice(self, request, queryset):
+        from apps.finance import services as finance_services
+
+        try:
+            created = finance_services.generate_draft_invoices(request.user, families=queryset)
+            self.message_user(request, f"Drafted {len(created)} invoice(s).")
+        except ValidationError as exc:
+            self.message_user(request, "; ".join(exc.messages), messages.ERROR)
+
+
 @admin.register(Student)
 class StudentAdmin(NoDeleteMixin, admin.ModelAdmin):
-    list_display = ("student_no", "full_name", "chinese_name", "gender", "date_of_birth", "join_date", "status")
+    list_display = ("student_no", "full_name", "chinese_name", "gender", "date_of_birth", "family", "join_date", "status")
+    autocomplete_fields = ("family",)
     list_filter = ("status", "gender", "enrollments__training_class__category", "enrollments__training_class")
     search_fields = ("student_no", "full_name", "chinese_name", "ic_number", "guardianships__parent__full_name")
     inlines = [GuardianshipInline, EnrollmentInline, StudentAccountInline, StatusHistoryInline]

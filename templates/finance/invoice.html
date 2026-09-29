@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice {{ invoice }}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; margin: 0; padding: 24px; }
+  .doc { max-width: 760px; margin: 0 auto; border: 1px solid #ccc; padding: 24px; position: relative; }
+  h1 { margin: 0; font-size: 22px; }
+  .muted { color: #555; font-size: 13px; }
+  .meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { border-bottom: 1px solid #ddd; padding: 8px 6px; text-align: left; vertical-align: top; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tfoot td { font-weight: bold; }
+  .void { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 96px; color: rgba(200,0,0,.25);
+          transform: rotate(-20deg); font-weight: bold; pointer-events: none; }
+  .footer { margin-top: 24px; font-size: 12px; color: #555; }
+  @media print { body { padding: 0; } .doc { border: none; } .noprint { display: none; } }
+</style>
+</head>
+<body>
+<div class="doc">
+  {% if invoice.status == "VOID" %}<div class="void">VOID</div>{% elif invoice.status == "DRAFT" %}<div class="void">DRAFT</div>{% endif %}
+  <h1>{{ academy.NAME }}</h1>
+  <h2>INVOICE</h2>
+  <div class="meta">
+    <div><strong>Invoice no:</strong> {{ invoice.number|default:"(draft)" }}<br>
+      <strong>Issue date:</strong> {{ invoice.issue_date|date:"d M Y"|default:"—" }}<br>
+      <strong>Due date:</strong> {{ invoice.due_date|date:"d M Y"|default:"—" }}</div>
+    <div><strong>Family:</strong> {{ invoice.family_name|default:invoice.family.name }}<br>
+      <strong>Status:</strong> {{ invoice.get_status_display }}</div>
+  </div>
+  <table>
+    <thead><tr><th>Student</th><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Discount</th><th class="num">Amount ({{ invoice.currency }})</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr><td>{{ item.student_name }}<br><span class="muted">{{ item.student_no }}</span></td>
+          <td>{{ item.description }}<br><span class="muted">{{ item.get_fee_type_display }}</span></td>
+          <td class="num">{{ item.quantity|floatformat:"-2" }}</td><td class="num">{{ item.unit_amount }}</td>
+          <td class="num">{{ item.discount }}</td><td class="num">{{ item.amount }}</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="5">Subtotal</td><td class="num">{{ invoice.subtotal }}</td></tr>
+      <tr><td colspan="5">Discount</td><td class="num">{{ invoice.discount_total }}</td></tr>
+      <tr><td colspan="5">Total</td><td class="num">{{ invoice.currency }} {{ invoice.total }}</td></tr>
+      <tr><td colspan="5">Paid</td><td class="num">{{ invoice.amount_paid }}</td></tr>
+      <tr><td colspan="5">Balance due</td><td class="num">{{ invoice.currency }} {{ invoice.balance_due }}</td></tr>
+    </tfoot>
+  </table>
+  <div class="footer">This is a computer-generated invoice.</div>
+  <p class="noprint"><button onclick="window.print()">Print</button></p>
+</div>
+</body>
+</html>

@@ -6,22 +6,22 @@
 <title>Receipt {{ c.number }}</title>
 <style>
   body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; margin: 0; padding: 24px; }
-  .receipt { max-width: 760px; margin: 0 auto; border: 1px solid #ccc; padding: 24px; position: relative; }
+  .doc { max-width: 760px; margin: 0 auto; border: 1px solid #ccc; padding: 24px; position: relative; }
   h1 { margin: 0; font-size: 22px; }
   .muted { color: #555; font-size: 13px; }
   .meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { border-bottom: 1px solid #ddd; padding: 8px 6px; text-align: left; vertical-align: top; }
   td.num, th.num { text-align: right; white-space: nowrap; }
-  tfoot td { font-weight: bold; border-top: 2px solid #111; }
+  tfoot td { font-weight: bold; }
   .void { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 96px; color: rgba(200,0,0,.25);
           transform: rotate(-20deg); font-weight: bold; pointer-events: none; }
   .footer { margin-top: 24px; font-size: 12px; color: #555; }
-  @media print { body { padding: 0; } .receipt { border: none; } .noprint { display: none; } }
+  @media print { body { padding: 0; } .doc { border: none; } .noprint { display: none; } }
 </style>
 </head>
 <body>
-<div class="receipt">
+<div class="doc">
   {% if void %}<div class="void">VOID</div>{% endif %}
   <h1>{{ c.academy.name }}</h1>
   <div class="muted">
@@ -31,20 +31,24 @@
   </div>
   <h2>OFFICIAL RECEIPT</h2>
   <div class="meta">
-    <div><strong>Receipt no:</strong> {{ c.number }}<br><strong>Date issued:</strong> {{ issued_at|date:"d M Y, H:i" }}</div>
-    <div><strong>Received from:</strong> {{ c.payer_name }}<br><strong>Payment date:</strong> {{ c.payment_date }}<br>
-      <strong>Method:</strong> {{ c.payment_method }}{% if c.reference %} ({{ c.reference }}){% endif %}</div>
+    <div><strong>Receipt no:</strong> {{ c.number }}<br><strong>Date issued:</strong> {{ issued_at|date:"d M Y, H:i" }}<br>
+      <strong>Payment no:</strong> {{ c.payment_number }}</div>
+    <div><strong>For student(s):</strong> {{ c.students|join:", " }}<br>
+      <strong>Payment date:</strong> {{ payment_date|date:"d M Y, H:i" }}<br>
+      <strong>Method:</strong> {{ c.payment_method }}{% if c.reference %} ({{ c.reference }}){% endif %}
+      {% if c.payer_reference %}<br><span class="muted">Paid by (as recorded): {{ c.payer_reference }}</span>{% endif %}</div>
   </div>
   <table>
-    <thead><tr><th>Student</th><th>Description</th><th class="num">Amount ({{ c.currency }})</th></tr></thead>
+    <thead><tr><th>Student</th><th>Invoice</th><th>Description</th><th class="num">Amount ({{ c.currency }})</th></tr></thead>
     <tbody>
     {% for line in c.lines %}
       <tr><td>{{ line.student_name }}<br><span class="muted">{{ line.student_no }}</span></td>
+          <td>{{ line.invoice_number }}</td>
           <td>{{ line.description }}<br><span class="muted">{{ line.fee_type }}</span></td>
           <td class="num">{{ line.amount_paid }}</td></tr>
     {% endfor %}
     </tbody>
-    <tfoot><tr><td colspan="2">Total received</td><td class="num">{{ c.currency }} {{ c.total }}</td></tr></tfoot>
+    <tfoot><tr><td colspan="3">Total received</td><td class="num">{{ c.currency }} {{ c.total }}</td></tr></tfoot>
   </table>
   {% if void %}<p><strong>This receipt was voided on {{ void.voided_at|date:"d M Y" }}.</strong> Reason: {{ void.reason }}</p>{% endif %}
   <div class="footer">Issued by {{ c.issued_by|default:"SR Wushu Academy" }}. This is a computer-generated receipt.</div>

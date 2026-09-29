@@ -1,0 +1,14 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+  {% if original %}
+    {% if can_manage_invoices and original.status == "DRAFT" %}
+      <li><form method="post" action="{% url 'admin:finance_invoice_issue' original.pk %}" style="display:inline">{% csrf_token %}
+        <button type="submit" class="button">Issue invoice</button></form></li>
+    {% endif %}
+    {% if can_manage_invoices and original.status == "DRAFT" or can_manage_invoices and original.status == "ISSUED" %}
+      <li><a href="{% url 'admin:finance_invoice_void' original.pk %}">Void invoice</a></li>
+    {% endif %}
+    <li><a href="{% url 'invoice-print' original.pk %}" target="_blank">Print</a></li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

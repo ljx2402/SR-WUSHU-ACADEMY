@@ -1,0 +1,10 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+{% if warning %}<p><strong>{{ warning }}</strong></p>{% endif %}
+<p>{{ object }}</p>
+<form method="post">{% csrf_token %}
+  {{ form.non_field_errors }}
+  <table>{{ form.as_table }}</table>
+  <input type="submit" value="Confirm" class="deletelink">
+</form>
+{% endblock %}

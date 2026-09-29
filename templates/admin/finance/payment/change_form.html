@@ -3,6 +3,9 @@
   {% if original and original.status == "VALID" and can_void %}
     <li><a href="{% url 'admin:finance_payment_void' original.pk %}">Void payment &amp; receipt</a></li>
   {% endif %}
+  {% if original and original.status == "VALID" and can_refund %}
+    <li><a href="{% url 'admin:finance_payment_refund' original.pk %}">Exceptional refund</a></li>
+  {% endif %}
   {% if original.receipt %}
     <li><a href="{% url 'receipt-print' original.receipt.pk %}" target="_blank">Print receipt</a></li>
   {% endif %}

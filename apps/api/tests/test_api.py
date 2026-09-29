@@ -8,6 +8,7 @@ from apps.academy.tests.base import AcademyTestCase
 from apps.competitions.models import Competition, CompetitionEvent
 from apps.finance.models import Receipt
 from apps.finance.services import add_charge, record_payment
+from apps.finance.tests.helpers import issued_invoice
 from apps.payroll.models import CoachRate
 from apps.payroll.services import calculate_run, finalize_run
 
@@ -37,8 +38,8 @@ class ParentApiTests(ApiTestCase):
     def test_parent_sees_own_charges_and_receipts_only(self):
         mine = add_charge(self.student_1, "UNIFORM", "Uniform", "80.00")
         other = add_charge(self.student_3, "UNIFORM", "Uniform", "80.00")
-        _, my_receipt = record_payment("P1", "80.00", "CASH", [(mine, "80.00")], actor=self.admin_user)
-        _, other_receipt = record_payment("P2", "80.00", "CASH", [(other, "80.00")], actor=self.admin_user)
+        _, my_receipt = record_payment([(issued_invoice([mine]), "80.00")], "CASH", self.admin_user)
+        _, other_receipt = record_payment([(issued_invoice([other]), "80.00")], "CASH", self.admin_user)
         client = self.client_for(self.parent_1_user)
         self.assertEqual(self.ids(client.get("/api/charges/")), {mine.id})
         self.assertEqual(self.ids(client.get("/api/receipts/")), {my_receipt.id})
@@ -140,10 +141,10 @@ class CoachApiTests(ApiTestCase):
 
 class AdminApiTests(ApiTestCase):
     def test_payment_via_api_issues_receipt(self):
-        charge = add_charge(self.student_1, "REGISTRATION", "Registration", "50.00")
+        invoice = issued_invoice([add_charge(self.student_1, "REGISTRATION", "Registration", "50.00")])
         response = self.client_for(self.admin_user).post("/api/payments/", {
-            "parent": self.parent_1.id, "payer_name": "Parent One", "amount": "50.00", "method": "DUITNOW",
-            "reference": "DN123", "allocations": [{"charge": charge.id, "amount": "50.00"}],
+            "payer_name": "Parent One", "amount": "50.00", "method": "DUITNOW",
+            "reference": "DN123", "allocations": [{"invoice": invoice.id, "amount": "50.00"}],
         }, format="json")
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(Receipt.objects.filter(number=response.json()["receipt_number"]).exists())

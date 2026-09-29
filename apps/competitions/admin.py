@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 
 from . import services
@@ -55,7 +55,8 @@ class CompetitionRegistrationAdmin(admin.ModelAdmin):
     list_filter = ("status", "event__competition", "event__event_type")
     search_fields = ("student__full_name", "student__student_no", "event__name")
     autocomplete_fields = ("student",)
-    readonly_fields = ("registered_by", "charge")
+    # Status changes only through actions: an unpaid registration must never be confirmed.
+    readonly_fields = ("status", "registered_by", "charge")
     inlines = [ResultInline]
     actions = ["confirm", "reject"]
 
@@ -72,8 +73,10 @@ class CompetitionRegistrationAdmin(admin.ModelAdmin):
     @admin.action(description="Confirm selected registrations", permissions=["change"])
     def confirm(self, request, queryset):
         for registration in queryset.filter(status=CompetitionRegistration.Status.PENDING):
-            registration.status = CompetitionRegistration.Status.CONFIRMED
-            registration.save()
+            try:
+                services.confirm(registration, request.user)
+            except ValidationError as exc:
+                self.message_user(request, f"{registration}: {'; '.join(exc.messages)}", messages.ERROR)
 
     @admin.action(description="Reject / withdraw selected registrations", permissions=["change"])
     def reject(self, request, queryset):

@@ -1,0 +1,6 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>{{ pending }} unpaid charge(s) are not on any invoice yet. One <strong>draft</strong> invoice will be created per
+  family, listing every child's charges. Review the drafts, then issue them.</p>
+<form method="post">{% csrf_token %}<input type="submit" value="Generate drafts"></form>
+{% endblock %}

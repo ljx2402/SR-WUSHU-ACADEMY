@@ -159,6 +159,34 @@ class ClassCoach(AuditedModel):
             raise ValidationError("End date cannot be before start date.")
 
 
+class Family(AuditedModel):
+    """A household of students (siblings) that is invoiced together.
+
+    Family membership is assigned explicitly by staff (``Student.family``). It is
+    never inferred from shared parents: two children of the same parent may live
+    in different households. There is deliberately no "bill-to" or billing-parent
+    concept: invoices are academy documents for the students of a family.
+    """
+
+    audit_category = AuditCategory.STUDENT
+
+    name = models.CharField(max_length=200, help_text='Display name, e.g. "Tan family (Ali & Mei)".')
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        verbose_name_plural = "families"
+
+    def __str__(self):
+        return f"{self.name} (#{self.pk})"
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Families cannot be deleted; move the students to another family instead.")
+
+
 class Student(AuditedModel):
     """Student record. Records are never deleted; set a status instead.
 
@@ -193,6 +221,10 @@ class Student(AuditedModel):
     medical_notes = models.TextField(blank=True, help_text="Allergies, injuries, conditions coaches must know.")
     join_date = models.DateField(default=datetime.date.today)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    family = models.ForeignKey(
+        Family, on_delete=models.PROTECT, related_name="students", blank=True,
+        help_text="Siblings who are invoiced together share a family. Leave empty to create a new family.",
+    )
     parents = models.ManyToManyField(Parent, through="Guardianship", related_name="children")
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -212,6 +244,9 @@ class Student(AuditedModel):
         return date.year - dob.year - ((date.month, date.day) < (dob.month, dob.day))
 
     def save(self, *args, **kwargs):
+        if self.family_id is None:
+            # Safe default: a student is their own household until staff group siblings.
+            self.family = Family.objects.create(name=f"{self.full_name} family")
         previous_status = None
         if self.pk is not None:
             previous_status = Student.objects.filter(pk=self.pk).values_list("status", flat=True).first()
@@ -282,7 +317,6 @@ class Guardianship(AuditedModel):
     relationship = models.CharField(max_length=12, choices=Relationship.choices)
     is_primary_contact = models.BooleanField(default=False)
     is_emergency_contact = models.BooleanField(default=True)
-    is_billing_contact = models.BooleanField(default=False)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["student", "parent"], name="unique_guardianship")]

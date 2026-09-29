@@ -2,11 +2,12 @@ import datetime
 from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils import timezone
 
 from apps.academy.tests.base import AcademyTestCase
 from apps.attendance.services import mark_attendance
 from apps.audit.models import AuditLog
-from apps.finance.models import Charge, ClassFee, Payment, Receipt, StudentFeePlan
+from apps.finance.models import Charge, ClassFee, Invoice, Payment, Receipt, StudentFeePlan
 from apps.finance.services import (
     add_charge,
     cancel_charge,
@@ -14,6 +15,7 @@ from apps.finance.services import (
     record_payment,
     void_payment,
 )
+from apps.finance.tests.helpers import issued_invoice, make_family
 
 
 class FinanceTestCase(AcademyTestCase):
@@ -84,29 +86,37 @@ class FeeTests(FinanceTestCase):
 
 
 class PaymentReceiptTests(FinanceTestCase):
+    """Payments are recorded against issued family invoices (ADMIN may record)."""
+
     def setUp(self):
+        self.family = make_family(self.student_1, self.student_2, name="Ali & Mei family")
         self.charge_1 = add_charge(self.student_1, "REGISTRATION", "Registration fee", "100.00", self.finance_user)
         self.charge_2 = add_charge(self.student_2, "UNIFORM", "Uniform", "80.00", self.finance_user)
+        self.invoice = issued_invoice([self.charge_1, self.charge_2], self.finance_user)
 
     def pay(self, amount="180.00", allocations=None):
-        allocations = allocations or [(self.charge_1, "100.00"), (self.charge_2, "80.00")]
-        return record_payment("Parent One", amount, "CASH", allocations, actor=self.admin_user, parent=self.parent_1)
+        allocations = allocations or [(self.invoice, amount)]
+        return record_payment(allocations, "CASH", self.admin_user, amount=amount, payer_name="Parent One")
 
     def test_payment_issues_receipt_and_settles_charges(self):
         payment, receipt = self.pay()
         self.charge_1.refresh_from_db()
         self.assertEqual(self.charge_1.status, Charge.Status.PAID)
-        self.assertRegex(receipt.number, rf"^SRWA-{receipt.issued_at.year}-000001$")
+        self.assertRegex(receipt.number, rf"^SRWA-{timezone.localtime(receipt.issued_at).year}-000001$")
+        self.assertRegex(payment.number, r"^PAY-\d{4}-000001$")
         self.assertEqual(receipt.content["total"], "180.00")
         self.assertEqual(len(receipt.content["lines"]), 2)
-        _, second = record_payment("X", "1.00", "CASH",
-                                   [(add_charge(self.student_3, "OTHER", "Misc", "1.00"), "1.00")])
+        other = issued_invoice([add_charge(self.student_3, "OTHER", "Misc", "1.00")])
+        _, second = record_payment([(other, "1.00")], "CASH")
         self.assertTrue(second.number.endswith("000002"))
 
     def test_partial_payment(self):
-        self.pay("50.00", [(self.charge_1, "50.00")])
+        self.pay("50.00")
         self.charge_1.refresh_from_db()
+        self.invoice.refresh_from_db()
+        # Lines are paid in order: Ali's registration fee first.
         self.assertEqual((self.charge_1.status, self.charge_1.balance), (Charge.Status.PARTIAL, Decimal("50.00")))
+        self.assertEqual((self.invoice.status, self.invoice.balance_due), (Invoice.Status.PARTIALLY_PAID, Decimal("130.00")))
 
     def test_receipt_is_immutable(self):
         payment, receipt = self.pay()
@@ -131,19 +141,21 @@ class PaymentReceiptTests(FinanceTestCase):
         self.assertEqual(receipt.content["total"], "180.00")
         self.charge_1.refresh_from_db()
         self.assertEqual(self.charge_1.status, Charge.Status.UNPAID)
+        self.invoice.refresh_from_db()
+        self.assertEqual((self.invoice.status, self.invoice.balance_due), (Invoice.Status.ISSUED, Decimal("180.00")))
         self.assertEqual(Payment.objects.get(pk=payment.pk).status, Payment.Status.VOIDED)
         self.assertTrue(AuditLog.objects.filter(category="FINANCE", reason="Cheque bounced").exists())
 
     def test_overpayment_and_mismatch_rejected(self):
         with self.assertRaises(ValidationError):
-            self.pay("200.00", [(self.charge_1, "200.00")])
+            self.pay("200.00")
         with self.assertRaises(ValidationError):
-            self.pay("150.00", [(self.charge_1, "100.00")])
+            record_payment([(self.invoice, "100.00")], "CASH", self.admin_user, amount="150.00")
 
-    def test_payer_must_be_parent_of_student(self):
-        other = add_charge(self.student_3, "OTHER", "Misc", "10.00")
+    def test_payment_cannot_span_families(self):
+        other = issued_invoice([add_charge(self.student_3, "OTHER", "Misc", "10.00")])
         with self.assertRaises(ValidationError):
-            self.pay("10.00", [(other, "10.00")])
+            record_payment([(self.invoice, "10.00"), (other, "10.00")], "CASH", self.admin_user)
 
     def test_financial_changes_audited(self):
         self.pay()

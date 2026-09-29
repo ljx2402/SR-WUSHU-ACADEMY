@@ -21,8 +21,8 @@ Authorization has two layers, and every API endpoint, service and admin page use
 | Role | Purpose | Admin site |
 |---|---|---|
 | `SUPER_ADMIN` | Everything, including users, roles, settings, the full audit log and **payroll finalization** | yes |
-| `ADMIN` | Academy operations: students, parents, guardians, classes, timetables, sessions, attendance, competitions, substitutes, operational reports. **May record payments** (cash, transfer) and view charges/receipts. No payroll, no coach bank details, no role management | yes |
-| `FINANCE_ADMIN` | Fee setup, charges, billing, payments, voids, receipts, coach rates and bank details, payroll **preparation**, finance and payroll reports. Sees a student *directory* only; cannot manage academic records or classes; cannot finalize payroll | yes |
+| `ADMIN` | Academy operations: students, parents, guardians, classes, timetables, sessions, attendance, competitions, substitutes, operational reports. **May record payments** (cash, transfer), view charges/invoices/receipts, and record an exceptional refund with a reason. No payroll, no coach bank details, no role management | yes |
+| `FINANCE_ADMIN` | Fee setup, charges, billing, family invoices (draft / issue / void), payments, voids, exceptional refunds, receipts, coach rates and bank details, payroll **preparation**, finance and payroll reports. Sees a student *directory* only; cannot manage academic records or classes; cannot finalize payroll | yes |
 | `COACH` | Own assigned classes, their sessions and rosters, attendance for those classes and for substitute sessions (session only, time-limited), own athletes' competition entries, own finalized payslips | no |
 | `PARENT` | Own children only: profile, timetable, attendance, competition entries and registration, charges, payments and receipts | no |
 | `STUDENT` | Own record only: profile, timetable, attendance, competition entries. Fees and receipts arrive with the invoice phase (P1) | no |
@@ -107,8 +107,10 @@ bumped, so existing sessions must sign in again. The migration is reversible (st
 | `competition.results.manage` | ✅ | ✅ |  |  |  |  |
 | `competition.view` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `finance.charges.manage` | ✅ |  | ✅ |  |  |  |
+| `finance.invoices.manage` | ✅ |  | ✅ |  |  |  |
 | `finance.payments.record` | ✅ | ✅ | ✅ |  |  |  |
 | `finance.payments.void` | ✅ |  | ✅ |  |  |  |
+| `finance.refunds.record` | ✅ | ✅ | ✅ |  |  |  |
 | `finance.setup` | ✅ |  | ✅ |  |  |  |
 | `finance.view_all` | ✅ | ✅ | ✅ |  |  |  |
 | `finance.view_own_children` | ✅ |  |  |  | ✅ |  |

@@ -75,21 +75,59 @@ Running it again for the same month does not bill anyone twice.
 
 Competition fees are billed automatically when a student is registered for an event that has a fee.
 
-## 5. Receiving payment and issuing receipts
+## 5. Families: grouping siblings for one invoice
 
-**Payments → Add**: enter payer, parent, amount, method (cash, bank transfer, DuitNow, FPX, card,
-cheque, e-wallet), reference and date, then in the lines below pick which charge(s) the money pays
-and how much goes to each. The lines must add up to the payment amount. One payment can cover
-several children and several charges.
+Each student belongs to a **family** (household). One family gets **one invoice** covering all of
+its children. There is no "bill to parent": the invoice is for the students.
 
-On save, an official receipt (e.g. `SRWA-2026-000123`) is issued automatically. Click **Print
-receipt** to print it or save it as PDF.
+* A new student is automatically their own family.
+* To put siblings together, open each sibling's student page and choose the same **Family**, or
+  rename a family under **Families**.
+* The system never groups students automatically just because they share a parent.
 
-Receipts cannot be edited or deleted. If a payment was entered wrongly (or a cheque bounces), open
-the payment and click **Void payment & receipt**, give a reason, and enter the payment again
-correctly. The voided receipt stays on record, marked VOID.
+## 6. Invoices
 
-## 6. Cancelling or waiving a charge
+1. Bill the charges for the month (section 3) and add any one-off charges (section 4).
+2. **Invoices → Generate draft family invoices**. This creates one **draft** per family, listing
+   every child's unpaid charges that are not yet on an invoice. Alternatively, select charges under
+   **Charges** and use the action **Create draft invoices for selected charges**.
+3. Check the drafts, then **Issue** them (the action on the list, or the button on an invoice). An
+   issued invoice gets its number, e.g. `INV-2026-000123`, and can no longer be changed. Click
+   **Print** to print it or save it as PDF.
+4. If an unpaid invoice is wrong, **Void** it, giving a reason. The voided invoice stays on
+   record, and its charges can be invoiced again.
+
+Invoicing and voiding are done by finance staff. Admins can see all invoices.
+
+## 7. Receiving payment and issuing receipts
+
+**Payments → Add** (admins and finance staff):
+1. Enter the amount received, the method (cash, bank transfer, DuitNow, FPX, card, cheque or
+   e-wallet), the date and time, and any bank reference.
+2. Choose the invoice(s) it pays and how much goes to each.
+3. The amounts must add up to the amount received; overpayment is not accepted. One payment can
+   pay several invoices of the same family, and can be a part payment.
+
+An official receipt (e.g. `SRWA-2026-000123`) is issued automatically. It lists each student,
+invoice and amount. Click **Print receipt** to print it.
+
+Recording cash is not the same as banking it: an admin may record cash taken at the desk and
+deposit it later.
+
+Receipts cannot be edited or deleted. If a payment was entered wrongly, or a cheque bounces,
+finance staff open the payment and click **Void payment & receipt**, give a reason, and enter the
+payment again correctly. The voided receipt stays on record, marked VOID, and the invoice becomes
+payable again.
+
+**Competition fees** are paid when registering. Registration creates the fee and a competition
+invoice due the same day, and the entry is confirmed automatically once that invoice is paid.
+Competition fees are **non-refundable**. For an authorized exception, admins or finance staff use
+**Exceptional refund** on the payment and must give a reason. The original receipt is kept, and
+the refund is recorded separately.
+
+## 8. Cancelling or waiving a charge
 
 In **Charges**, select the charge and choose the **Cancel** or **Waive** action. Charges are never
-deleted. A charge that already has payments must have those payments voided first.
+deleted.
+* A charge on an invoice must have that invoice voided first.
+* A charge that already has payments must have those payments voided first.

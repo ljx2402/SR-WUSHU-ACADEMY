@@ -23,7 +23,7 @@ from rest_framework.views import APIView
 
 from apps.academy import access
 from apps.academy import services as academy_services
-from apps.academy.models import Enrollment, SessionCoach, Student, TrainingClass
+from apps.academy.models import Enrollment, Family, SessionCoach, Student, TrainingClass
 from apps.accounts import services as account_services
 from apps.accounts.capabilities import Cap, can, capabilities_of
 from apps.accounts.models import Coach, Parent
@@ -33,8 +33,9 @@ from apps.audit.context import reset_actor, set_actor
 from apps.audit.utils import history_for
 from apps.competitions import services as competition_services
 from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
+from apps.finance import access as finance_access
 from apps.finance import services as finance_services
-from apps.finance.models import Charge, Payment, Receipt
+from apps.finance.models import Charge, Invoice
 from apps.payroll.models import PayrollRun, Payslip
 
 from . import serializers as s
@@ -510,32 +511,100 @@ class ChargeViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMix
         return Response({"created": len(created)}, status=status.HTTP_201_CREATED)
 
 
+class FamilyViewSet(ApiViewMixin, NoDestroyModelViewSet):
+    """Households for invoicing. Staff group siblings explicitly; parents see
+    the families their own children belong to."""
+
+    serializer_class = s.FamilySerializer
+    capabilities = caps(read=(Cap.STUDENTS_VIEW_ALL, Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN),
+                        write=Cap.STUDENTS_MANAGE)
+
+    def get_queryset(self):
+        user = self.request.user
+        if can(user, (Cap.STUDENTS_VIEW_ALL, Cap.FINANCE_VIEW_ALL)):
+            return Family.objects.all()
+        return finance_access.families_for(user)
+
+
+class InvoiceViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
+                     viewsets.GenericViewSet):
+    """Family invoices. Finance manages (draft / issue / void); admins view;
+    parents see their own families' issued invoices."""
+
+    serializer_class = s.InvoiceSerializer
+    capabilities = caps(
+        read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN),
+        create=Cap.FINANCE_INVOICES_MANAGE,
+        issue=Cap.FINANCE_INVOICES_MANAGE,
+        void=Cap.FINANCE_INVOICES_MANAGE,
+        generate_drafts=Cap.FINANCE_INVOICES_MANAGE,
+    )
+
+    def get_queryset(self):
+        qs = finance_access.invoices_for(self.request.user).prefetch_related("items")
+        params = self.request.query_params
+        if params.get("family"):
+            qs = qs.filter(family_id=params["family"])
+        if params.get("status"):
+            qs = qs.filter(status__in=params["status"].split(","))
+        if params.get("outstanding"):
+            qs = qs.filter(status__in=Invoice.OPEN_FOR_PAYMENT)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        data = s.InvoiceCreateSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        v = data.validated_data
+        invoice = finance_services.create_invoice(v["family"], v["charges"], request.user, v.get("due_date"), v["notes"])
+        return Response(self.get_serializer(invoice).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def issue(self, request, pk=None):
+        due = request.data.get("due_date")
+        invoice = finance_services.issue_invoice(self.get_object(), request.user,
+                                                 date.fromisoformat(due) if due else None)
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=["post"])
+    def void(self, request, pk=None):
+        reason = s.ReasonSerializer(data=request.data)
+        reason.is_valid(raise_exception=True)
+        invoice = finance_services.void_invoice(self.get_object(), reason.validated_data["reason"], request.user)
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=False, methods=["post"], url_path="generate-drafts")
+    def generate_drafts(self, request):
+        created = finance_services.generate_draft_invoices(request.user)
+        return Response({"created": [inv.pk for inv in created]}, status=status.HTTP_201_CREATED)
+
+
 class PaymentViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
                      viewsets.GenericViewSet):
+    """Money received. Admins and finance record payments against issued
+    invoices; send an ``Idempotency-Key`` header so a retried request can never
+    record the same payment twice."""
+
     serializer_class = s.PaymentSerializer
     capabilities = caps(
         read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN),
         create=Cap.FINANCE_PAYMENTS_RECORD,
         void=Cap.FINANCE_PAYMENTS_VOID,
+        refund=Cap.FINANCE_REFUNDS_RECORD,
     )
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Payment.objects.select_related("receipt").prefetch_related("allocations__charge__student")
-        if can(user, Cap.FINANCE_VIEW_ALL):
-            return qs
-        parent = access.parent_of(user)
-        return qs.filter(Q(parent=parent) | family_finance_filter(user, "allocations__charge__student")).distinct()
+        return finance_access.payments_for(self.request.user).select_related("receipt").prefetch_related(
+            "allocations__invoice", "allocations__invoice_item")
 
     def create(self, request, *args, **kwargs):
         data = s.PaymentCreateSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         v = data.validated_data
         payment, _ = finance_services.record_payment(
-            payer_name=v["payer_name"], amount=v["amount"], method=v["method"],
-            allocations=[(a["charge"], a["amount"]) for a in v["allocations"]],
-            actor=request.user, parent=v.get("parent"), reference=v["reference"],
-            received_on=v.get("received_on"), notes=v["notes"],
+            [(a["invoice"], a["amount"]) for a in v["allocations"]], v["method"], request.user,
+            amount=v["amount"], payer_name=v["payer_name"], reference=v["reference"],
+            received_at=v.get("received_at"), notes=v["notes"],
+            idempotency_key=request.headers.get("Idempotency-Key") or None,
         )
         return Response(s.PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
@@ -546,19 +615,34 @@ class PaymentViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMi
         payment = finance_services.void_payment(self.get_object(), reason.validated_data["reason"], request.user)
         return Response(s.PaymentSerializer(payment).data)
 
+    @action(detail=True, methods=["post"])
+    def refund(self, request, pk=None):
+        """Exceptional refund against one line of this payment (reason required)."""
+        payment = self.get_object()
+        data = s.RefundCreateSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        v = data.validated_data
+        if v["allocation"].payment_id != payment.pk:
+            raise ValidationError({"allocation": "That line does not belong to this payment."})
+        refund = finance_services.record_exceptional_refund(v["allocation"], v["amount"], v["reason"], request.user,
+                                                            method=v["method"], reference=v["reference"])
+        return Response(s.RefundSerializer(refund).data, status=status.HTTP_201_CREATED)
+
 
 class ReceiptViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = s.ReceiptSerializer
     capabilities = caps(read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN))
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Receipt.objects.select_related("payment")
-        if can(user, Cap.FINANCE_VIEW_ALL):
-            return qs
-        return qs.filter(
-            Q(payment__parent=access.parent_of(user)) | family_finance_filter(user, "payment__allocations__charge__student")
-        ).distinct()
+        return finance_access.receipts_for(self.request.user)
+
+
+class RefundViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = s.RefundSerializer
+    capabilities = caps(read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN))
+
+    def get_queryset(self):
+        return finance_access.refunds_for(self.request.user)
 
 
 class CompetitionViewSet(ApiViewMixin, NoDestroyModelViewSet):
@@ -651,9 +735,7 @@ class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
-        registration = self.get_object()
-        registration.status = CompetitionRegistration.Status.CONFIRMED
-        registration.save()
+        registration = competition_services.confirm(self.get_object(), request.user)
         return Response(self.get_serializer(registration).data)
 
 

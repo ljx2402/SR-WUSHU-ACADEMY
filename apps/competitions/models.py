@@ -111,7 +111,7 @@ class CompetitionRegistration(AuditedModel):
     audit_category = AuditCategory.COMPETITION
 
     class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending coach/admin approval"
+        PENDING = "PENDING", "Awaiting payment"
         CONFIRMED = "CONFIRMED", "Confirmed"
         WITHDRAWN = "WITHDRAWN", "Withdrawn"
         REJECTED = "REJECTED", "Rejected"

@@ -9,7 +9,7 @@ from apps.academy.models import ClassCoach, Enrollment, Guardianship, Student, T
 from apps.attendance.models import AttendanceRecord
 from apps.attendance.services import summarize
 from apps.competitions.models import CompetitionRegistration, CompetitionResult
-from apps.finance.models import Charge, Payment, Receipt
+from apps.finance.models import Charge, Invoice, Payment, Receipt, Refund
 from apps.payroll.models import Payslip
 
 
@@ -96,20 +96,55 @@ def fees_report(params):
 
 
 def payments_report(params):
-    qs = Payment.objects.select_related("receipt", "received_by")
+    qs = Payment.objects.select_related("receipt", "received_by", "family")
     if params.get("start"):
-        qs = qs.filter(received_on__gte=_date(params["start"]))
+        qs = qs.filter(received_at__date__gte=_date(params["start"]))
     if params.get("end"):
-        qs = qs.filter(received_on__lte=_date(params["end"]))
+        qs = qs.filter(received_at__date__lte=_date(params["end"]))
     if params.get("method"):
         qs = qs.filter(method=params["method"])
-    columns = ["payment_id", "received_on", "payer_name", "amount", "method", "reference", "status", "receipt_no",
+    columns = ["payment_no", "received_at", "family", "amount", "method", "reference", "status", "receipt_no",
                "received_by"]
     rows = []
-    for p in qs.order_by("received_on", "id"):
+    for p in qs.order_by("received_at", "id"):
         receipt = getattr(p, "receipt", None)
-        rows.append([p.pk, p.received_on.isoformat(), p.payer_name, str(p.amount), p.method, p.reference, p.status,
-                     receipt.number if receipt else "", p.received_by.username if p.received_by else ""])
+        rows.append([p.number, timezone.localtime(p.received_at).strftime("%Y-%m-%d %H:%M"), p.family.name,
+                     str(p.amount), p.method, p.reference, p.status, receipt.number if receipt else "",
+                     p.received_by.username if p.received_by else ""])
+    return columns, rows
+
+
+def invoices_report(params):
+    qs = Invoice.objects.exclude(status=Invoice.Status.DRAFT).select_related("family")
+    if params.get("start"):
+        qs = qs.filter(issue_date__gte=_date(params["start"]))
+    if params.get("end"):
+        qs = qs.filter(issue_date__lte=_date(params["end"]))
+    if params.get("status"):
+        qs = qs.filter(status=params["status"])
+    columns = ["invoice_no", "issue_date", "due_date", "family", "kind", "status", "total", "amount_paid",
+               "balance_due", "amount_refunded", "students"]
+    rows = []
+    for inv in qs.order_by("issue_date", "number").prefetch_related("items"):
+        students = sorted({i.student_name for i in inv.items.all() if i.is_active or inv.status == Invoice.Status.VOID})
+        rows.append([inv.number, inv.issue_date.isoformat() if inv.issue_date else "",
+                     inv.due_date.isoformat() if inv.due_date else "", inv.family_name, inv.kind, inv.status,
+                     str(inv.total), str(inv.amount_paid), str(inv.balance_due), str(inv.amount_refunded),
+                     "; ".join(students)])
+    return columns, rows
+
+
+def refunds_report(params):
+    qs = Refund.objects.select_related("payment", "allocation__invoice_item", "recorded_by")
+    if params.get("start"):
+        qs = qs.filter(refunded_at__date__gte=_date(params["start"]))
+    if params.get("end"):
+        qs = qs.filter(refunded_at__date__lte=_date(params["end"]))
+    columns = ["refund_no", "refunded_at", "payment_no", "student", "description", "amount", "method", "reason",
+               "recorded_by"]
+    rows = [[r.number, timezone.localtime(r.refunded_at).strftime("%Y-%m-%d %H:%M"), r.payment.number,
+             r.allocation.invoice_item.student_name, r.allocation.invoice_item.description, str(r.amount), r.method,
+             r.reason, r.recorded_by.username if r.recorded_by else ""] for r in qs.order_by("refunded_at", "id")]
     return columns, rows
 
 
@@ -119,11 +154,12 @@ def receipts_report(params):
         qs = qs.filter(issued_at__date__gte=_date(params["start"]))
     if params.get("end"):
         qs = qs.filter(issued_at__date__lte=_date(params["end"]))
-    columns = ["receipt_no", "issued_at", "payer_name", "total", "method", "void", "void_reason"]
+    columns = ["receipt_no", "issued_at", "payment_no", "students", "total", "method", "void", "void_reason"]
     rows = []
     for r in qs.order_by("issued_at"):
         void = getattr(r, "void_record", None)
-        rows.append([r.number, timezone.localtime(r.issued_at).strftime("%Y-%m-%d %H:%M"), r.payer_name, str(r.total),
+        rows.append([r.number, timezone.localtime(r.issued_at).strftime("%Y-%m-%d %H:%M"), r.payment.number,
+                     "; ".join(r.content.get("students", [])), str(r.total),
                      r.payment.method, "YES" if void else "", void.reason if void else ""])
     return columns, rows
 
@@ -178,6 +214,8 @@ REPORTS = {
     "attendance": attendance_report,
     "fees": fees_report,
     "payments": payments_report,
+    "invoices": invoices_report,
+    "refunds": refunds_report,
     "receipts": receipts_report,
     "competitions": competitions_report,
     "results": results_report,

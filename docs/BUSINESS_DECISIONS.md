@@ -3,11 +3,13 @@
 Approved rules that later phases must follow. Items marked *(later phase)* are **not implemented
 yet**; the current code may still behave differently until that phase lands.
 
-1. **Invoice grouping** *(P1)*: one family receives one invoice covering all of their children,
+1. **Invoice grouping** *(implemented in Phase 1: `Family`, `Invoice`)*: one family receives one invoice covering all of their children,
    e.g. `INV-2026-000123` with lines for Student A RM220, Student B RM280, Student C RM50 =
    RM550. Invoices are academy billing documents associated with the students. There is **no
    "Bill To Parent"** field and **no billing-contact** requirement or fallback logic.
 2. **Receipts** are issued for the student(s)/charges they pay, not "billed to a parent".
+   *(Implemented in Phase 1: receipts list student, invoice and amount per line; the old unused
+   `Guardianship.is_billing_contact` flag was removed.)*
 3. **Payment collection**: `ADMIN` may record payments (cash, bank transfer, other approved
    methods); depositing cash to the academy account afterwards is an operational process.
    `FINANCE_ADMIN` has full finance capabilities; `SUPER_ADMIN` has everything. *(Implemented in
@@ -17,10 +19,10 @@ yet**; the current code may still behave differently until that phase lands.
    later.)*
 5. **Attendance** *(P5)*: coaches may edit attendance until **48 hours after the session ends**.
    `UNMARKED` is neither Present nor Absent in the percentage and is shown separately.
-6. **Competition payment** *(P7)*: the fee is paid **at registration**: registration submitted →
+6. **Competition payment** *(finance side implemented in Phase 1; full competition workflow P7)*: the fee is paid **at registration**: registration submitted →
    fee generated → payment required immediately → paid → `CONFIRMED`. (Not "approve first, charge
    later".)
-7. **Competition refunds** *(P7/P1)*: paid registrations are generally **non-refundable**. `ADMIN`
+7. **Competition refunds** *(Phase 1: `Refund` + `record_exceptional_refund`, never automatic; P7 builds the workflow)*: paid registrations are generally **non-refundable**. `ADMIN`
    or `FINANCE_ADMIN` may authorize an exceptional refund with a reason; it is audited, keeps the
    original receipt and follows proper finance records.
 8. **Coach payroll** *(P6)*: **all coaches are paid per training session**; there is no monthly

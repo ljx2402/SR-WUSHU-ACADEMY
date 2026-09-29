@@ -91,12 +91,14 @@ class Cap:
     ATTENDANCE_CORRECT = "attendance.correct"
 
     # Finance
-    FINANCE_VIEW_ALL = "finance.view_all"              # all charges, payments, receipts
-    FINANCE_VIEW_OWN_CHILDREN = "finance.view_own_children"
+    FINANCE_VIEW_ALL = "finance.view_all"              # all charges, invoices, payments, receipts, refunds
+    FINANCE_VIEW_OWN_CHILDREN = "finance.view_own_children"  # parent: own children's charges, own families' invoices
     FINANCE_SETUP = "finance.setup"                    # class fees, fee plans, price list
     FINANCE_CHARGES_MANAGE = "finance.charges.manage"  # add / cancel / waive charges, monthly billing
     FINANCE_PAYMENTS_RECORD = "finance.payments.record"
     FINANCE_PAYMENTS_VOID = "finance.payments.void"
+    FINANCE_INVOICES_MANAGE = "finance.invoices.manage"  # draft, issue and void invoices
+    FINANCE_REFUNDS_RECORD = "finance.refunds.record"    # exceptional refunds (reason required, audited)
 
     # Competitions
     COMPETITION_VIEW = "competition.view"              # published competitions and events
@@ -137,8 +139,9 @@ _ADMIN = {
     Cap.SESSIONS_VIEW_ALL, Cap.SESSIONS_MANAGE,
     Cap.ROSTER_VIEW_ALL, Cap.SUBSTITUTE_ASSIGN, Cap.SUBSTITUTE_REVOKE,
     Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_TAKE_ANY, Cap.ATTENDANCE_CORRECT,
-    # Front desk may receive and record payments (and so needs to see what is owed).
-    Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENTS_RECORD,
+    # Front desk may receive and record payments (and so needs to see what is owed),
+    # and may authorize an exceptional refund (reason required, audited).
+    Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENTS_RECORD, Cap.FINANCE_REFUNDS_RECORD,
     Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE,
     Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_MANAGE, Cap.COMPETITION_RESULTS_MANAGE,
     Cap.REPORTS_STUDENTS, Cap.REPORTS_ATTENDANCE, Cap.REPORTS_COMPETITIONS,
@@ -150,6 +153,7 @@ _FINANCE_ADMIN = {
     Cap.COACHES_VIEW_ALL, Cap.COACHES_BANK_DETAILS,
     Cap.FINANCE_VIEW_ALL, Cap.FINANCE_SETUP, Cap.FINANCE_CHARGES_MANAGE,
     Cap.FINANCE_PAYMENTS_RECORD, Cap.FINANCE_PAYMENTS_VOID,
+    Cap.FINANCE_INVOICES_MANAGE, Cap.FINANCE_REFUNDS_RECORD,
     Cap.COMPETITION_VIEW,
     Cap.PAYROLL_VIEW_ALL, Cap.PAYROLL_RATES_MANAGE, Cap.PAYROLL_PREPARE,
     Cap.REPORTS_FINANCE, Cap.REPORTS_PAYROLL,
@@ -212,6 +216,7 @@ MODEL_CAPABILITIES = {
     "academy.enrollment": (Cap.STUDENTS_VIEW_ALL, Cap.STUDENTS_MANAGE),
     # Linking a login to a person is account management (super admin).
     "academy.studentaccount": (Cap.STUDENTS_VIEW_ALL, Cap.USERS_MANAGE),
+    "academy.family": ((Cap.STUDENTS_VIEW_ALL, Cap.FINANCE_VIEW_ALL), Cap.STUDENTS_MANAGE),
     "academy.trainingsession": (Cap.SESSIONS_VIEW_ALL, Cap.SESSIONS_MANAGE),
     "academy.sessioncoach": (Cap.SESSIONS_VIEW_ALL, Cap.SUBSTITUTE_ASSIGN),
     "attendance.attendancerecord": (Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_CORRECT),
@@ -223,7 +228,10 @@ MODEL_CAPABILITIES = {
     "finance.paymentallocation": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENTS_RECORD),
     "finance.receipt": (Cap.FINANCE_VIEW_ALL, None),
     "finance.receiptvoid": (Cap.FINANCE_VIEW_ALL, None),
-    "finance.receiptsequence": (None, None),
+    "finance.documentsequence": (None, None),
+    "finance.invoice": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_INVOICES_MANAGE),
+    "finance.invoiceitem": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_INVOICES_MANAGE),
+    "finance.refund": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_REFUNDS_RECORD),
     "competitions.competition": (Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE),
     "competitions.competitionevent": (Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE),
     "competitions.competitionregistration": (Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_MANAGE),
