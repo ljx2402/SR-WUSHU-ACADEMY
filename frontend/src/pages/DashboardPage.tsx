@@ -24,6 +24,8 @@ export function DashboardPage() {
   const portals = portalsOf(me);
   // A parent-only account goes straight to the Parent Portal overview.
   if (portals.length === 1 && portals[0] === "parent") return <Navigate to="/parent/dashboard" replace />;
+  // A coach-only account goes straight to the Coach Portal dashboard.
+  if (portals.length === 1 && portals[0] === "coach") return <Navigate to="/coach/dashboard" replace />;
   const staff = inPortal(me, "staff");
   const seesSessions = can(me, ["sessions.view_all", "sessions.view_assigned", "sessions.view_own_children",
                                 "sessions.view_self"]);
@@ -146,7 +148,7 @@ function CoachCard({ me }: { me: Me }) {
   const classes = me.classes ?? [];
   const substitute = me.substitute_sessions ?? [];
   return (
-    <Card title="Coaching">
+    <Card title="Coaching" actions={<Link to="/coach/dashboard">Coach dashboard</Link>}>
       {substitute.length ? (
         <Alert tone="info" title={`You are covering ${substitute.length} session${substitute.length === 1 ? "" : "s"} as a substitute.`}>
           <ul className="item-list">

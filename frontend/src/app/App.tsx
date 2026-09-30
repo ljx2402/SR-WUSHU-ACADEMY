@@ -23,6 +23,10 @@ import { ParentDashboardPage } from "../parent/pages/ParentDashboardPage";
 import { SchedulePage } from "../parent/pages/SchedulePage";
 import { StudentProfilePage } from "../parent/pages/StudentProfilePage";
 import { ParentLayout } from "../parent/ParentContext";
+import { CoachAttendancePage } from "../coach/pages/CoachAttendancePage";
+import { CoachCompetitionsPage } from "../coach/pages/CoachCompetitionsPage";
+import { CoachDashboardPage } from "../coach/pages/CoachDashboardPage";
+import { CoachAttendanceIndexPage, CoachSessionDetailPage, CoachSessionsPage } from "../coach/pages/CoachSessionPages";
 import { ServicesProvider, type AppServices } from "./services";
 
 /** The app is served under /app/ (Django keeps /api/ and /admin/). */
@@ -30,6 +34,12 @@ export const APP_BASENAME = "/app";
 
 /** Built pages, by NAV_ITEMS id or SUB_ROUTES path. Anything else shows "not available yet". */
 const PAGES: Record<string, ReactNode> = {
+  "coach-dashboard": <CoachDashboardPage />,
+  "coach-sessions": <CoachSessionsPage />,
+  "coach-attendance": <CoachAttendanceIndexPage />,
+  "coach-competitions": <CoachCompetitionsPage />,
+  "/coach/sessions/:sessionId": <CoachSessionDetailPage />,
+  "/coach/sessions/:sessionId/attendance": <CoachAttendancePage />,
   "parent-overview": <ParentDashboardPage />,
   "parent-family": <FamilyPage />,
   "parent-schedule": <SchedulePage />,
@@ -85,6 +95,7 @@ export const appRoutes: RouteObject[] = [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/parent", element: <Navigate to="/parent/dashboard" replace /> },
+          { path: "/coach", element: <Navigate to="/coach/dashboard" replace /> },
           { path: "/parent/students", element: <Navigate to="/parent/family" replace /> },
           {
             element: <ParentLayout />,

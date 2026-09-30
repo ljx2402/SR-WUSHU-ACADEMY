@@ -152,7 +152,9 @@ students, served under `/app/` and talking only to this API. Phase 6A provides t
 sign-in, the application shell, role- and capability-aware navigation, route protection,
 the design system and a dashboard from real API data. Phase 6B adds the Parent Portal
 (family overview, children's profiles, schedule, attendance, family finance with invoices,
-payments and printable receipts, competition registration). Other portals follow in 6C–6J.
+payments and printable receipts, competition registration). Phase 6C adds the Coach Portal
+(today's and upcoming sessions, rosters, attendance on a phone, substitute sessions,
+athletes' competition entries). Other portals follow in 6D–6J.
 
 ```bash
 cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)
@@ -212,7 +214,7 @@ docker-compose.yml local PostgreSQL 16
 
 ## Not included yet
 
-* The staff, coach and student portal screens of the web app (Phase 6C onwards).
+* The staff and student portal screens of the web app (Phase 6D onwards).
 * Online payment gateway (FPX/DuitNow) integration: parents pay manually and upload payment
   proof; staff review it and record the payment (see docs/PAYMENT_PROOFS.md).
 * SST/e-Invoice (LHDN MyInvois) submission.

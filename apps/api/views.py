@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 
 from apps.academy import access
 from apps.academy import services as academy_services
-from apps.academy.models import Enrollment, Family, SessionCoach, Student, TrainingClass
+from apps.academy.models import Enrollment, Family, SessionCoach, Student, TrainingClass, TrainingSession
 from apps.accounts import services as account_services
 from apps.accounts.capabilities import Cap, can, capabilities_of
 from apps.accounts.models import Coach, Parent
@@ -358,6 +358,7 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
         read=(Cap.SESSIONS_VIEW_ALL, Cap.SESSIONS_VIEW_ASSIGNED, Cap.SESSIONS_VIEW_OWN_CHILDREN, Cap.SESSIONS_VIEW_SELF),
         write=Cap.SESSIONS_MANAGE,
         roster=(Cap.ROSTER_VIEW_ALL, Cap.ROSTER_VIEW_ASSIGNED),
+        coaching=(Cap.ROSTER_VIEW_ALL, Cap.ROSTER_VIEW_ASSIGNED),
         attendance=(Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_VIEW_ASSIGNED),
         assign_substitute=Cap.SUBSTITUTE_ASSIGN,
         revoke_substitute=Cap.SUBSTITUTE_REVOKE,
@@ -366,7 +367,7 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
         reschedule=Cap.SESSIONS_MANAGE,
         reassign_coach=Cap.SESSIONS_MANAGE,
     )
-    STAFF_ACTIONS = {"roster", "attendance"}
+    STAFF_ACTIONS = {"roster", "attendance", "coaching"}
 
     def get_queryset(self):
         user = self.request.user
@@ -381,7 +382,26 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
             qs = qs.filter(date__lte=params["end"])
         if id_param(params, "class"):
             qs = qs.filter(training_class_id=id_param(params, "class"))
+        if params.get("status"):
+            if params["status"] not in TrainingSession.Status.values:
+                raise ValidationError({"status": "Unknown session status."})
+            qs = qs.filter(status=params["status"])
         return qs
+
+    @action(detail=False, methods=["get"])
+    def coaching(self, request):
+        """The sessions the caller works as coach (regular classes, and a
+        substitute session only while its authorization is open), or every
+        session for staff, with the caller's role and the attendance state.
+        The scope comes from ``access.roster_sessions_for``: never from a
+        coach id in the request. ``order=asc`` lists the earliest first."""
+        qs = self.filter_queryset(self.get_queryset()).prefetch_related("coach_slots__coach")
+        if request.query_params.get("order") == "asc":
+            qs = qs.order_by("date", "start_time")
+        page = self.paginate_queryset(qs)
+        context = {**self.get_serializer_context(), "coach": access.coach_of(request.user)}
+        data = s.CoachingSessionSerializer(page, many=True, context=context).data
+        return self.get_paginated_response(data)
 
     @action(detail=True, methods=["get"])
     def roster(self, request, pk=None):

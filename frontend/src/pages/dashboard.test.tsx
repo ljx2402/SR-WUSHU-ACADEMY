@@ -34,7 +34,7 @@ describe("dashboard", () => {
   it("lists sessions in start-time order with their status", async () => {
     renderApp({
       routes: {
-        "GET /api/me/": json(makeMe(["COACH"], { classes: [{ id: 1, name: "Junior Taolu" }] })),
+        "GET /api/me/": json(makeMe(["COACH", "PARENT"], { classes: [{ id: 1, name: "Junior Taolu" }] })),
         "GET /api/sessions/": json(page([session(2, "19:00:00", "Senior Sanda"), session(1, "17:00:00", "Junior Taolu", "CANCELLED")])),
       },
     });
@@ -48,7 +48,7 @@ describe("dashboard", () => {
   it("uses /api/me/ for the coach's classes and substitute sessions", async () => {
     renderApp({
       routes: {
-        "GET /api/me/": json(makeMe(["COACH"], {
+        "GET /api/me/": json(makeMe(["COACH", "PARENT"], {
           classes: [{ id: 1, name: "Junior Taolu" }],
           substitute_sessions: [{ session: 77, access_ends_at: "2026-10-03T12:00:00Z" }],
         })),

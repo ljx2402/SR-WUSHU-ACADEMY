@@ -220,3 +220,24 @@ In short:
 * bank details are visible to `coaches.bank_details` only;
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
+
+## Coach Portal (Phase 6C)
+
+No new capabilities: the Coach Portal uses the COACH role's existing ones
+(`sessions.view_assigned`, `roster.view_assigned`, `attendance.view_assigned`,
+`attendance.take_assigned`, `students.view_assigned`, `classes.view_assigned`,
+`competition.view`, `competition.registrations.view_assigned`, `payroll.view_own`).
+Which records a coach reaches is decided by `apps.academy.access` from the signed-in
+coach, never from an id in the request:
+
+| Data | Coach sees |
+| --- | --- |
+| Sessions, rosters, attendance | Their current classes' sessions; a substitute session only while the authorization is open (`roster_sessions_for`). Others → 404 |
+| Students | Roster level only: name, student no., gender, age, medical notes, status, emergency contacts (name, relationship, phone). No IC, address, contact details, family or guardians |
+| Competition entries | Entries of students they coach: student, event, status, result. **Not** the family's form answers, notes, fee, fee status or invoice (removed from the response for coach-only viewers in 6C) |
+| Finance, families, parents, payment proofs, payment information, receipts, refunds | Nothing (403) |
+| Payroll | Only their own finalized payslips (`payroll.view_own`, unchanged); no payroll runs, no other coach's payslips. Not shown in the Coach Portal (payroll screens are Phase 6I) |
+| Competition form configuration | Nothing (403) |
+
+Coaches cannot manage substitutes, cancel or reschedule sessions, register or withdraw
+competition entries, or correct attendance after the 48-hour window.

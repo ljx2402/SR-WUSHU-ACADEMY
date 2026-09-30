@@ -108,3 +108,51 @@
 .answers summary, .rules summary { cursor: pointer; min-height: var(--tap-target); display: flex; align-items: center; color: var(--color-info); }
 .register-competition { max-width: 40rem; }
 @media (max-width: 640px) { .answer-list div { grid-template-columns: 1fr; gap: 0; } }
+
+/* Coach Portal (Phase 6C): phone-first session cards and attendance taking */
+.session-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.session-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.session-card.is-cancelled { border-left: 4px solid var(--color-danger); }
+.session-card-link { display: flex; flex-direction: column; gap: 2px; color: var(--color-text); text-decoration: none; min-width: 0; min-height: var(--tap-target); justify-content: center; }
+.session-card-link:hover .session-card-class { text-decoration: underline; }
+.session-card-class { font-weight: 600; overflow-wrap: anywhere; }
+.session-card-badges { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.attendance-counts { font-size: var(--text-sm); }
+.badge-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.roster-list { list-style: none; margin: 0; padding: 0; }
+.roster-list li { border-bottom: 1px solid var(--color-border); padding: var(--space-2) 0; }
+.roster-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); overflow-wrap: anywhere; }
+.roster-list summary { min-height: var(--tap-target); display: flex; align-items: center; cursor: pointer; color: var(--color-info); }
+.roster-list a { display: inline-flex; min-height: var(--tap-target); align-items: center; }
+
+.attendance-bar { position: sticky; top: var(--topbar-height); z-index: 5; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.attendance-bar-unmarked strong { color: var(--color-warning); }
+.attendance-status:focus, [tabindex="-1"]:focus { outline: none; }
+.attendance-actions { margin-bottom: var(--space-3); }
+.attendance-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.attendance-row { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.attendance-row.is-unmarked { border-left: 4px solid var(--color-warning); }
+.attendance-row.is-edited { border-left: 4px solid var(--color-info); }
+.attendance-row fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.attendance-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; padding: 0; overflow-wrap: anywhere; }
+.mark-options { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-2) 0; }
+.mark { position: relative; }
+.mark input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.mark span { display: inline-flex; align-items: center; min-height: var(--tap-target); min-width: 4.5rem; justify-content: center; padding: 0 var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); cursor: pointer; font-size: var(--text-sm); }
+.mark input:checked + span { font-weight: 700; color: #fff; }
+.mark-present input:checked + span { background: var(--color-success); border-color: var(--color-success); }
+.mark-late input:checked + span { background: var(--color-info); border-color: var(--color-info); }
+.mark-absent input:checked + span { background: var(--color-danger); border-color: var(--color-danger); }
+.mark-excused input:checked + span { background: var(--color-muted); border-color: var(--color-muted); }
+.mark-unmarked input:checked + span { background: var(--color-warning-soft); color: var(--color-text); border-color: var(--color-warning); }
+.mark input:checked + span::before { content: "✓ "; }
+.mark input:focus-visible + span { box-shadow: var(--focus-ring); }
+fieldset:disabled .mark span { cursor: not-allowed; opacity: 0.7; }
+.remark summary { cursor: pointer; font-size: var(--text-sm); color: var(--color-muted); min-height: var(--tap-target); display: flex; align-items: center; overflow-wrap: anywhere; }
+.remark input { width: 100%; min-height: var(--tap-target); padding: 0 var(--space-3); font: inherit; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); }
+.attendance-submit { margin-top: var(--space-4); max-width: 40rem; }
+@media (max-width: 480px) {
+  .mark-options { display: grid; grid-template-columns: repeat(2, 1fr); }
+  .mark span { width: 100%; }
+  .mark-unmarked { grid-column: 1 / -1; }
+}

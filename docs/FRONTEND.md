@@ -7,8 +7,8 @@ to *show*, the API decides what is *allowed*.
 
 Phase 6A delivered the foundation: sign-in, the application shell, navigation, the design
 system, the API client, route protection and a dashboard built from real API data. Phase 6B
-added the **Parent Portal** (see below). The other portals are built in later phases
-(6C–6J); until then each of their pages exists, is protected, and says "This page is not
+added the **Parent Portal** and Phase 6C the **Coach Portal** (see below). The other
+portals are built in later phases (6D–6J); until then each of their pages exists, is protected, and says "This page is not
 available yet" (no invented data).
 
 ## Technology (and why)
@@ -420,10 +420,80 @@ charge status (UNPAID, PARTIAL, PAID, WAIVED, CANCELLED) as payment status.
   hidden from parents and visible to staff; the register → pay → CONFIRMED → withdraw (no
   refund) flow; eligibility and duplicate errors; drafts hidden.
 
+## Coach Portal (Phase 6C)
+
+For the COACH role, phone-first (coaches use it at the venue). It reuses the existing
+session, roster, attendance and competition APIs; the backend decides every scope from the
+signed-in coach and never trusts a coach id. A coach-only account is sent from `/dashboard`
+to `/coach/dashboard`; a coach who is also a parent keeps the general dashboard and sees
+both sections.
+
+### Routes
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/coach` | redirects to `/coach/dashboard` | – |
+| `/coach/dashboard` | Today (sessions, next session, cancelled / substitute marked, the session in progress with "Take attendance"), attendance to finish, next 7 days | `sessions.view_assigned` |
+| `/coach/sessions` | Today / Upcoming / Past / Cancelled (`?view=`), with role and attendance state per session | `sessions.view_assigned` |
+| `/coach/sessions/:sessionId` | Session detail: date, time, venue, status, regular and substitute coaches, notes, attendance summary, roster with safety information | `sessions.view_assigned` |
+| `/coach/attendance` | Sessions open for attendance (today and the previous two days) | `attendance.take_assigned` |
+| `/coach/sessions/:sessionId/attendance` | Take and correct attendance | `attendance.take_assigned` |
+| `/coach/competitions` | Competition entries of the students the coach coaches, with results | `competition.registrations.view_assigned` |
+
+The menu shows Coach dashboard, My sessions, Attendance and Competitions only: no finance,
+family, payroll, payment proof or settings pages (and those URLs show "access denied").
+
+### API used
+
+| Feature | Endpoint |
+| --- | --- |
+| Session lists (dashboard, sessions, attendance index) | `GET /api/sessions/coaching/?date=|start=&end=|status=CANCELLED&order=asc` (new in 6C; scope from `access.roster_sessions_for`) |
+| Session detail | `GET /api/sessions/:id/` |
+| Roster | `GET /api/sessions/:id/roster/` (roster serializer: training and safety information only) |
+| Attendance sheet / submit | `GET` / `POST /api/sessions/:id/attendance/` |
+| Competition entries | `GET /api/competition-registrations/` (coach scope; family-only fields removed), `GET /api/competitions/` |
+
+### Attendance page
+
+* One row per expected student (from the backend's sheet) with five large choices: Present,
+  Late, Absent, Excused, Not marked (the backend's statuses; UNMARKED is shown as "Not
+  marked", never as absent). Long names wrap; each choice is at least 44 px tall.
+* "Mark all unmarked as present" fills only students who are not marked yet.
+* A sticky counts bar shows expected / marked / not marked as the coach marks, and the saved
+  attendance percentage exactly as the backend reports it (UNMARKED excluded; never
+  recomputed in the browser).
+* Optional remark per student (the existing attendance `remarks`).
+* Saving sends only the changed students, all or nothing. Changing a mark that was already
+  saved asks for a reason (the backend requires one and audits it). Success and errors are
+  announced and receive focus.
+* The state comes from the backend: NOT_STARTED (opens at the start time), OPEN / COMPLETE
+  (editable until the 48-hour deadline shown), LOCKED (read-only: only an administrator can
+  correct, with a reason), CANCELLED (no attendance). A late write the backend refuses (403)
+  shows "can no longer be changed by coaches" and reloads the state.
+
+### Substitutes
+
+A substitute sees only the covered session (dashboard marks it "Substitute"), its roster and
+attendance, and only while the authorization is open; the regular coach sees "Covered by a
+substitute". Substitutes are assigned and revoked by staff only.
+
+### Privacy
+
+The roster shows name, student no., age, health note and emergency contacts (name,
+relationship, phone) because the backend gives those to a student's coach for safety; no
+IC, address, family or finance data. Competition entries show student, event, entry status
+("Not yet confirmed" / "Confirmed" / ...) and results; the family's form answers, notes, fees
+and invoices are not sent to coaches at all.
+
 ## Tests
 
-`npm test` runs 116 tests: the Phase 6A suite (61) and the Parent Portal suites (55,
-`src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10). The Phase 6A suite (Vitest, jsdom) covers: the API client (headers, token, 204, 401,
+`npm test` runs 133 tests: the Phase 6A suite (61), the Parent Portal suites (55,
+`src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10) and the
+Coach Portal suite (17, `src/coach/test/`: dashboard and menu, session filters, session
+detail and roster, cancelled and unknown sessions, attendance counts and "mark all", saving
+only changes, reason for saved-mark changes, 403 late correction, backend validation
+messages, locked and cancelled sheets, attendance index, competition entries without payment
+details, route guards both ways). The Phase 6A suite (Vitest, jsdom) covers: the API client (headers, token, 204, 401,
 403, 404, 400 field errors, 429, 5xx without leaks, network failure, timeout); login
 (validation, success, generic failure, throttle, connection failure, redirect back to the
 requested page); logout (server revocation and offline sign-out); expired or revoked session
@@ -454,7 +524,9 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 
 ## Known limitations
 
-* Staff, coach and student portal pages are placeholders until their phase (6C–6J).
+* Staff and student portal pages are placeholders until their phase (6D–6J). Coach payslips
+  (the backend's existing `payroll.view_own`) are not shown in the Coach Portal; payroll
+  screens are Phase 6I.
   Notifications and recent activity are marked "not available yet": the backend has no
   endpoints for them.
 * The Django print pages (`/receipts/<id>/`, `/invoices/<id>/`) need a Django session. The

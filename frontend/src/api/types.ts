@@ -394,3 +394,53 @@ export interface PaymentProof {
   payment: number | null;
   payment_number: string | null;
 }
+
+/* ------------------------------------------------------------------ coach portal (Phase 6C) */
+
+export type SheetState = "NOT_STARTED" | "OPEN" | "COMPLETE" | "LOCKED" | "CANCELLED";
+
+/** GET /api/sessions/coaching/ : a session with the caller's role and the attendance state. */
+export interface CoachingSession extends TrainingSession {
+  my_role: { role: "REGULAR" | "SUBSTITUTE"; status: string | null; access_ends_at: string | null } | null;
+  attendance: {
+    state: SheetState;
+    coach_edit_deadline: string;
+    expected: number;
+    marked: number;
+    unmarked: number;
+    percentage: string | null;
+  };
+}
+
+/** GET /api/sessions/:id/roster/ : what a coach may see (training and safety information only). */
+export interface RosterStudent {
+  id: number;
+  student_no: string;
+  full_name: string;
+  chinese_name: string;
+  gender: "M" | "F";
+  age: number | null;
+  medical_notes: string;
+  status: string;
+  emergency_contacts: { name: string; relationship: string; phone: string }[];
+}
+
+export type AttendanceMark = "UNMARKED" | "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
+
+/** GET /api/sessions/:id/attendance/ : the sheet of expected students. */
+export interface AttendanceSheet {
+  session: number;
+  state: SheetState;
+  coach_edit_deadline: string;
+  summary: {
+    expected: number;
+    marked: number;
+    unmarked: number;
+    present: number;
+    late: number;
+    absent: number;
+    excused: number;
+    percentage: string | null;
+  };
+  sheet: { student: number; student_name: string; status: AttendanceMark; remarks: string }[];
+}

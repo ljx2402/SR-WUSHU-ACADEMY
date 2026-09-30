@@ -234,6 +234,41 @@ class TrainingSessionSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class CoachingSessionSerializer(TrainingSessionSerializer):
+    """A session as the coach (or staff) working it sees it: the caller's own
+    role on it and the attendance sheet state and counts (from the attendance
+    services; UNMARKED counted separately, never as absent)."""
+
+    my_role = serializers.SerializerMethodField()
+    attendance = serializers.SerializerMethodField()
+
+    class Meta(TrainingSessionSerializer.Meta):
+        fields = TrainingSessionSerializer.Meta.fields + ["my_role", "attendance"]
+
+    def get_my_role(self, obj):
+        coach = self.context.get("coach")
+        if coach is None:
+            return None
+        slots = [slot for slot in obj.coach_slots.all() if slot.coach_id == coach.pk]
+        if slots:
+            slot = next((s for s in slots if s.status == SessionCoach.Status.ASSIGNED), slots[-1])
+            return {"role": slot.role, "status": slot.status, "access_ends_at": slot.access_ends_at}
+        return {"role": SessionCoach.Role.REGULAR, "status": None, "access_ends_at": None}
+
+    def get_attendance(self, obj):
+        from apps.attendance import services as attendance_services
+
+        summary = attendance_services.session_summary(obj)
+        return {
+            "state": attendance_services.session_state(obj, summary),
+            "coach_edit_deadline": attendance_services.coach_edit_deadline(obj),
+            "expected": summary["expected"],
+            "marked": summary["marked"],
+            "unmarked": summary["unmarked"],
+            "percentage": str(summary["percentage"]) if summary["percentage"] is not None else None,
+        }
+
+
 class RescheduleSerializer(serializers.Serializer):
     date = serializers.DateField(required=False)
     start_time = serializers.TimeField(required=False)
@@ -505,10 +540,12 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
         # Duplicates are refused by the registration service (after the permission check).
         validators = []
 
+    # Family and competition-staff details: a coach viewing their athletes' entries
+    # sees the entry and its status, never the family's answers, notes, fee or invoice.
+    FAMILY_ONLY = ("form_responses", "notes", "fee", "fee_status", "invoice")
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Form answers (which may include contact or health details) are for the
-        # family and competition staff, not for coaches viewing their athletes.
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if user is not None and not can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL):
@@ -517,7 +554,8 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
             own = access.is_parent_of(user, instance.student) or getattr(access.student_of(user), "pk", None) \
                 == instance.student_id
             if not own:
-                data.pop("form_responses", None)
+                for name in self.FAMILY_ONLY:
+                    data.pop(name, None)
         return data
 
     def get_invoice(self, obj):

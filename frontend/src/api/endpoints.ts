@@ -1,7 +1,7 @@
 import type { ApiClient } from "./client";
 import type { QueryValue } from "./client";
 import type {
-  AcademyPaymentInfo, PaymentProof,
+  AcademyPaymentInfo, AttendanceMark, AttendanceSheet, CoachingSession, PaymentProof, RosterStudent,
   AttendanceRecord, AttendanceSummaryResponse, Charge, Competition, CompetitionRegistration, Family, Invoice, Me,
   OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, TokenResponse, TrainingSession,
 } from "./types";
@@ -80,6 +80,21 @@ export function endpoints(api: ApiClient) {
     register: (body: { student: number; event: number; competition?: number; notes?: string;
                        responses?: Record<string, unknown> }) =>
       api.post<CompetitionRegistration>("/api/competition-registrations/", body),
+    /* Coach portal. Scope comes from the signed-in coach (never from ids sent). */
+    coachingSessions: (query: { date?: string; start?: string; end?: string; status?: string; order?: "asc";
+                                page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<CoachingSession>>("/api/sessions/coaching/", query, signal),
+    session: (id: number | string, signal?: AbortSignal) =>
+      api.get<TrainingSession>(`/api/sessions/${encodeURIComponent(id)}/`, undefined, signal),
+    roster: (id: number | string, signal?: AbortSignal) =>
+      api.get<RosterStudent[]>(`/api/sessions/${encodeURIComponent(id)}/roster/`, undefined, signal),
+    attendanceSheet: (id: number | string, signal?: AbortSignal) =>
+      api.get<AttendanceSheet>(`/api/sessions/${encodeURIComponent(id)}/attendance/`, undefined, signal),
+    /** All or nothing (the backend checks roster, window, reason and authorization). */
+    submitAttendance: (id: number | string, body: {
+      records: { student: number; status: AttendanceMark; remarks: string }[]; reason: string }) =>
+      api.post<unknown>(`/api/sessions/${encodeURIComponent(id)}/attendance/`, body),
+
     /** The academy's bank details, QR code and instructions. */
     paymentInfo: (signal?: AbortSignal) => api.get<AcademyPaymentInfo>("/api/payment-info/", undefined, signal),
     paymentProofs: (query: { invoice?: number; page?: number }, signal?: AbortSignal) =>

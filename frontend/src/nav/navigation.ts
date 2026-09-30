@@ -42,19 +42,20 @@ export const NAV_ITEMS: readonly NavItem[] = [
     capabilities: ["reports.students", "reports.attendance", "reports.competitions", "reports.finance", "reports.payroll"],
     phase: "6J", description: "Reports and exports." },
 
-  // Coach (COACH, including authorized substitute sessions)
+  // Coach (COACH, including authorized substitute sessions): the Coach Portal (Phase 6C).
+  // No finance, family, payroll or form-configuration pages here.
+  { id: "coach-dashboard", portal: "coach", label: "Coach dashboard", path: "/coach/dashboard",
+    capabilities: ["sessions.view_assigned"], phase: "6C",
+    description: "Today's sessions, attendance to finish and the week ahead." },
   { id: "coach-sessions", portal: "coach", label: "My sessions", path: "/coach/sessions",
     capabilities: ["sessions.view_assigned"], phase: "6C",
     description: "Your classes' sessions and the sessions you cover as a substitute." },
-  { id: "coach-attendance", portal: "coach", label: "Take attendance", path: "/coach/attendance",
-    capabilities: ["attendance.take_assigned"], phase: "6G",
+  { id: "coach-attendance", portal: "coach", label: "Attendance", path: "/coach/attendance",
+    capabilities: ["attendance.take_assigned"], phase: "6C",
     description: "Record attendance from the session start until 48 hours after it ends." },
-  { id: "coach-students", portal: "coach", label: "My students", path: "/coach/students",
-    capabilities: ["students.view_assigned"], phase: "6C",
-    description: "Training information and emergency contacts for the students you coach." },
-  { id: "coach-payslips", portal: "coach", label: "My payslips", path: "/coach/payslips",
-    capabilities: ["payroll.view_own"], phase: "6I",
-    description: "Your finalized payslips." },
+  { id: "coach-competitions", portal: "coach", label: "Competitions", path: "/coach/competitions",
+    capabilities: ["competition.registrations.view_assigned"], phase: "6C",
+    description: "Competition entries of the students you coach." },
 
   // Parent (PARENT): the Parent Portal (Phase 6B)
   { id: "parent-overview", portal: "parent", label: "Overview", path: "/parent/dashboard",
@@ -99,6 +100,8 @@ export interface SubRoute {
 }
 
 export const SUB_ROUTES: readonly SubRoute[] = [
+  { path: "/coach/sessions/:sessionId", parent: "coach-sessions" },
+  { path: "/coach/sessions/:sessionId/attendance", parent: "coach-attendance" },
   { path: "/parent/students/:studentId", parent: "parent-family" },
   { path: "/parent/finance/invoices", parent: "parent-finance" },
   { path: "/parent/finance/invoices/:invoiceId", parent: "parent-finance" },

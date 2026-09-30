@@ -139,6 +139,7 @@ stays paid, and exceptional refunds remain a finance action.
 | Working copy, preview, publish, reorder, unpublish | – | – | – | yes |
 | Submit a registration with answers | own children only | – | – | on anyone's behalf (`registrations.manage`) |
 | Read answers (`form_responses`) | own children | **no** (entry only) | yes | yes |
+| Read notes, fee, fee status, invoice | own children | **no** (removed for coach-only viewers, Phase 6C) | yes | yes |
 
 Another family's registration is 404 for a parent; registrations cannot be edited through the
 API (no update route), and answers cannot be rewritten at all.

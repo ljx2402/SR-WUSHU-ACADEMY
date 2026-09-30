@@ -153,3 +153,26 @@ Since Phase 4 the substitute authorization is the payroll source of truth (`PAYR
 
 * Attendance can be recorded only from the session start (inclusive), never before, by anyone.
 * A substitute can be authorized only before the session ends.
+
+## Coach Portal (Phase 6C)
+
+The Coach Portal (`/app/coach/...`, see `docs/FRONTEND.md`) takes attendance through the
+same endpoints and services; it adds no rules of its own:
+
+* `GET /api/sessions/coaching/` lists the sessions the caller works: the coach's current
+  classes and open substitute sessions (`access.roster_sessions_for`), with the caller's
+  role on each (`REGULAR` / `SUBSTITUTE`, slot status such as `ASSIGNED`, `REPLACED`) and
+  the attendance state and counts from `attendance.services` (`session_state`,
+  `session_summary`, `coach_edit_deadline`). Filters: `date`, `start`, `end`, `class`,
+  `status` (`SCHEDULED` / `CANCELLED`), `order=asc`. Staff see every session; parents and
+  students get 403.
+* The sheet (`GET /api/sessions/:id/attendance/`) and the all-or-nothing submission
+  (`POST`, `{records: [{student, status, remarks}], reason}`) are unchanged. The page sends
+  only changed students, asks for a reason when a saved mark changes (the backend requires
+  it), shows expected / marked / not marked counts separately, and shows the saved
+  percentage exactly as the backend reports it (UNMARKED excluded).
+* The 48-hour window is computed only by the backend (`coach_edit_deadline`); the page shows
+  the state it reports (OPEN, COMPLETE, LOCKED, NOT_STARTED, CANCELLED) and a coach's late
+  write is refused by the service (403) whatever the page shows.
+* Session attendance remarks (`remarks`) are the existing per-student field: coaches of the
+  session read and write them with the attendance; no second notes system exists.

@@ -60,7 +60,10 @@ const CAPABILITIES: Record<Role, string[]> = {
           "reports.competitions"],
   FINANCE_ADMIN: ["finance.view_all", "payroll.view_all", "reports.finance", "reports.payroll",
                   "students.view_directory"],
-  COACH: ["sessions.view_assigned", "attendance.take_assigned", "students.view_assigned", "payroll.view_own"],
+  // Mirrors apps/accounts/capabilities.py.
+  COACH: ["students.view_assigned", "classes.view_assigned", "sessions.view_assigned", "roster.view_assigned",
+          "attendance.view_assigned", "attendance.take_assigned", "competition.view",
+          "competition.registrations.view_assigned", "payroll.view_own"],
   PARENT: ["students.view_own_children", "sessions.view_own_children", "attendance.view_own_children",
            "finance.view_own_children", "finance.proofs.upload_own", "competition.registrations.view_own_children",
            "competition.register_own_children"],

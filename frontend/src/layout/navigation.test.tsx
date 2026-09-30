@@ -49,7 +49,9 @@ describe("role-based navigation", () => {
   it("a coach who is also a parent sees both sections under one sign-in", async () => {
     await renderAs(["COACH", "PARENT"]);
     expect(sectionTitles()).toEqual(["Coaching", "My family"]);
-    expect(within(sidebar()).getByRole("link", { name: "Take attendance" })).toBeInTheDocument();
+    const coaching = sidebar().querySelector("[data-portal='coach']") as HTMLElement;
+    expect(within(coaching).getAllByRole("link").map((a) => a.textContent)).toEqual(
+      ["Coach dashboard", "My sessions", "Attendance", "Competitions"]);
     expect(within(sidebar()).getByRole("link", { name: "My family" })).toBeInTheDocument();
   });
 
