@@ -1,5 +1,8 @@
 {% extends "admin/change_form.html" %}
 {% block object-tools-items %}
+  {% if original and can_view_attendance %}
+    <li><a href="{% url 'admin:academy_trainingsession_attendance' original.pk %}">Attendance</a></li>
+  {% endif %}
   {% if original and can_assign_substitute %}
     <li><a href="{% url 'admin:academy_trainingsession_substitute' original.pk %}">Assign substitute coach</a></li>
   {% endif %}

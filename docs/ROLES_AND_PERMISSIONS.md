@@ -174,3 +174,20 @@ as the API.
 
 Tests: `apps/accounts/tests/test_admin_access.py` (every role and combination, by direct URL and
 POST) and `apps/finance/tests/test_admin_guardrails.py` (tampered forms, bulk deletes, raw SQL).
+
+## Attendance and substitutes (Phase 3)
+
+Record access for attendance and substitutes, in the API, the services and the admin:
+
+| Action | Who |
+|---|---|
+| Record attendance within 48 h of the session end | Class's regular coaches; the session's authorized substitute (inside their access window); ADMIN, SUPER_ADMIN |
+| Correct attendance after 48 h (reason required) | ADMIN, SUPER_ADMIN (`attendance.correct`) |
+| Authorize / revoke a substitute (revoke needs a reason) | ADMIN, SUPER_ADMIN (`substitute.assign` / `substitute.revoke`) |
+| Attendance of own child / self (read only) | PARENT / STUDENT |
+
+FINANCE_ADMIN has no attendance capability, and finance capabilities never grant any. A revoked,
+cancelled or expired substitute authorization grants nothing. A substitute never gets the class, its
+other sessions, families or finance. COACH + PARENT combines the two contexts without either one
+widening the other: parent access never shows a class roster, and coaching never shows family
+finance. Details: `ATTENDANCE_AND_SUBSTITUTES.md`.

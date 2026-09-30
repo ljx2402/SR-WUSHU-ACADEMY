@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -370,34 +370,49 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
 
     @action(detail=True, methods=["get", "post"])
     def attendance(self, request, pk=None):
+        """GET: the attendance sheet (every expected student, UNMARKED if not yet
+        marked) with expected/marked/unmarked counts. POST: record attendance for
+        some or all expected students, all or nothing, through the service."""
         session = self.get_object()
         if request.method == "GET":
+            summary = attendance_services.session_summary(session)
             records = session.attendance.select_related("student", "recorded_by", "session__training_class")
             return Response({
                 "session": session.id,
-                "summary": summary_json(attendance_services.session_summary(session)),
+                "state": attendance_services.session_state(session, summary),
+                "coach_edit_deadline": attendance_services.coach_edit_deadline(session),
+                "summary": summary_json(summary),
+                "sheet": [
+                    {"student": row["student"].id, "student_name": row["student"].full_name,
+                     "status": row["status"], "remarks": row["remarks"]}
+                    for row in attendance_services.session_sheet(session)
+                ],
                 "records": s.AttendanceRecordSerializer(records, many=True).data,
             })
-        if not can(request.user, (Cap.ATTENDANCE_TAKE_ANY, Cap.ATTENDANCE_TAKE_ASSIGNED)):
+        if not can(request.user, (Cap.ATTENDANCE_TAKE_ANY, Cap.ATTENDANCE_TAKE_ASSIGNED, Cap.ATTENDANCE_CORRECT)):
             raise PermissionDenied()
         payload = s.AttendanceSubmitSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        roster = {st.id: st for st in session.roster()}
-        saved = []
-        for entry in payload.validated_data["records"]:
-            student = roster.get(entry["student"])
-            if student is None:
-                raise ValidationError({"detail": f"Student {entry['student']} is not on this session's roster."})
-            saved.append(attendance_services.mark_attendance(
-                session, student, entry["status"], request.user, entry["remarks"], payload.validated_data["reason"]
-            ))
+        entries = [(e["student"], e["status"], e["remarks"]) for e in payload.validated_data["records"]]
+        saved = attendance_services.record_session_attendance(
+            session, entries, request.user, payload.validated_data["reason"])
         return Response(s.AttendanceRecordSerializer(saved, many=True).data)
+
+    @staticmethod
+    def _coach_id(request, field, required=True):
+        value = request.data.get(field)
+        if value in (None, "") and not required:
+            return None
+        if not str(value).isdigit():
+            raise ValidationError({field: "A coach id is required."})
+        return int(value)
 
     @action(detail=True, methods=["post"], url_path="assign-substitute")
     def assign_substitute(self, request, pk=None):
         session = self.get_object()
-        substitute = get_object_or_404(Coach, pk=request.data.get("substitute"))
-        replaces = get_object_or_404(Coach, pk=request.data["replaces"]) if request.data.get("replaces") else None
+        substitute = get_object_or_404(Coach, pk=self._coach_id(request, "substitute"))
+        replaces_id = self._coach_id(request, "replaces", required=False)
+        replaces = get_object_or_404(Coach, pk=replaces_id) if replaces_id else None
         slot = academy_services.assign_substitute(session, substitute, replaces, request.user,
                                                   request.data.get("reason", ""))
         return Response(s.SessionCoachSerializer(slot).data, status=status.HTTP_201_CREATED)
@@ -405,9 +420,13 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
     @action(detail=True, methods=["post"], url_path="revoke-substitute")
     def revoke_substitute(self, request, pk=None):
         session = self.get_object()
-        slot = get_object_or_404(SessionCoach, session=session, coach_id=request.data.get("substitute"),
-                                 role=SessionCoach.Role.SUBSTITUTE)
-        academy_services.revoke_substitute(slot, request.user, request.data.get("reason", ""))
+        slots = session.coach_slots.substitutes().filter(coach_id=self._coach_id(request, "substitute"))
+        # The active authorization if there is one; otherwise the latest, so the
+        # service can say it is already revoked or cancelled.
+        slot = slots.filter(status=SessionCoach.Status.ASSIGNED).first() or slots.order_by("-id").first()
+        if slot is None:
+            raise NotFound("No substitute authorization for that coach on this session.")
+        slot = academy_services.revoke_substitute(slot, request.user, request.data.get("reason", ""))
         return Response(s.SessionCoachSerializer(slot).data)
 
 

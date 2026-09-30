@@ -51,12 +51,15 @@ def student_of(user):
 
 
 def open_substitute_slots(coach, at=None):
+    """Substitute authorizations that grant access right now: ASSIGNED (not
+    revoked or cancelled), on a session that is not cancelled, inside the
+    access window. Presence at a session never grants access by itself."""
     at = at or timezone.now()
     return SessionCoach.objects.filter(
         coach=coach,
         role=SessionCoach.Role.SUBSTITUTE,
         status=SessionCoach.Status.ASSIGNED,
-    ).filter(
+    ).exclude(session__status=TrainingSession.Status.CANCELLED).filter(
         Q(access_starts_at__isnull=True) | Q(access_starts_at__lte=at),
         Q(access_ends_at__isnull=True) | Q(access_ends_at__gte=at),
     )
@@ -173,7 +176,10 @@ def can_view_session(user, session, at=None):
 
 
 def can_take_attendance(user, session, at=None):
-    """Staff with attendance.take_any; regular class coaches; substitutes only inside their window."""
+    """Who may record attendance for this session at all (the 48-hour edit window
+    and reasons are enforced by ``apps.attendance.services``): staff with
+    attendance.take_any; the class's regular coaches on the session date; an
+    authorized substitute only inside their access window."""
     if can(user, Cap.ATTENDANCE_TAKE_ANY):
         return True
     coach = _coach_for(user, Cap.ATTENDANCE_TAKE_ASSIGNED)

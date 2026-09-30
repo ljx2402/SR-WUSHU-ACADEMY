@@ -71,6 +71,6 @@ class SubstituteAccessTests(AcademyTestCase):
 
     def test_revoke_restores_original_coach(self):
         slot = assign_substitute(self.session_b, self.coach_a, replaces=self.coach_b, actor=self.admin_user)
-        revoke_substitute(slot, self.admin_user)
+        revoke_substitute(slot, self.admin_user, "Coach B is available after all")
         self.assertFalse(access.can_take_attendance(self.coach_a_user, self.session_b, at=timezone.now()))
         self.assertEqual(self.session_b.coach_slots.get(coach=self.coach_b).status, SessionCoach.Status.ASSIGNED)

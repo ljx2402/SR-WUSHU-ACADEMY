@@ -1,0 +1,7 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+  {% if can_revoke %}
+    <li><a href="{% url 'admin:academy_sessioncoach_revoke' original.pk %}">Revoke substitute</a></li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

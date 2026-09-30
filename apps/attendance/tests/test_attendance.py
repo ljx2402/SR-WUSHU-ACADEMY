@@ -49,7 +49,7 @@ class AttendanceTests(AcademyTestCase):
         for i, status in enumerate(statuses):
             session = self.class_a.sessions.create(date=self.today - datetime.timedelta(days=i + 1),
                                                    start_time=datetime.time(17), end_time=datetime.time(19))
-            mark_attendance(session, self.student_1, status, self.admin_user)
+            mark_attendance(session, self.student_1, status, self.admin_user, reason="Late entry from paper register")
         summary = student_summary(self.student_1)
         # (2 present + 1 late) / (5 - 1 excused) = 75%
         self.assertEqual(summary["percentage"], Decimal("75.00"))

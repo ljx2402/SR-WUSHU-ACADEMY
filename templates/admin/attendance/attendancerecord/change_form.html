@@ -1,0 +1,7 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+  {% if original and can_correct %}
+    <li><a href="{% url 'admin:attendance_attendancerecord_correct' original.pk %}">Correct attendance</a></li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

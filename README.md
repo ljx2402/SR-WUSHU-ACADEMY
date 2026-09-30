@@ -59,7 +59,7 @@ python manage.py generate_invoices              # then: one draft invoice per fa
 | Class membership | Dated enrollments. Transfers and withdrawals end the old membership rather than removing it, so past rosters stay correct. |
 | Training sessions | Generated from the timetable; each session records which coaches taught it. |
 | Substitute coaches | Admin assigns a substitute to one session. See the access rules below. |
-| Attendance | Present / Absent / Late / Excused. Changes after first entry need a reason and are audited. Attendance % per student, class or period. |
+| Attendance | Present / Absent / Late / Excused, Unmarked until marked. Only the session's expected roster; coaches may edit for 48 h after the session, then administrator corrections with a reason. Every change audited. Attendance % per student, class or period (Unmarked shown separately). See `docs/ATTENDANCE_AND_SUBSTITUTES.md`. |
 | Fees | Per-class fee rates with effective dates (monthly or per-session), per-student fee plans and discounts, automatic monthly billing, one-off charges (registration, uniform, weapons, competition, other). See **[docs/FEES_GUIDE.md](docs/FEES_GUIDE.md)**. |
 | Invoices | One invoice per family covering all its children (`INV-2026-000001`), draft → issued → partially paid → paid / void, frozen snapshot of each student's charges, printable. See **[docs/FINANCE_ARCHITECTURE.md](docs/FINANCE_ARCHITECTURE.md)**. |
 | Payments & receipts | Payments (`PAY-2026-…`) applied to issued invoices under row locks, one payment across several invoices of a family, partial payments, idempotency keys, official receipts (`SRWA-2026-…`) listing student and invoice per line, void with reason, exceptional refunds (`RFD-2026-…`) with reason. |
@@ -105,7 +105,8 @@ configurable in `config/settings.py` (`SUBSTITUTE_ACCESS_HOURS_BEFORE/AFTER`).
 8. **Coaches see only authorized classes and students**, and never finance data.
 9. **Substitutes get temporary, session-level access only.**
 
-Attendance % = (Present + Late) ÷ (Present + Late + Absent) × 100. Excused sessions are left out.
+Attendance % = (Present + Late) ÷ (Present + Late + Absent) × 100. Excused and Unmarked are left out;
+Unmarked students are reported separately and are never counted as Absent.
 Set `LATE_COUNTS_AS_PRESENT = False` to count Late as not attended.
 
 ## API overview

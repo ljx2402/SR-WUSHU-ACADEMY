@@ -172,7 +172,8 @@ class SessionCoachSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SessionCoach
-        fields = ["coach", "coach_name", "role", "status", "replaces", "access_starts_at", "access_ends_at"]
+        fields = ["id", "coach", "coach_name", "role", "status", "replaces", "access_starts_at", "access_ends_at",
+                  "authorized_at", "revoked_at"]
 
 
 class TrainingSessionSerializer(serializers.ModelSerializer):
@@ -210,7 +211,8 @@ class AttendanceEntrySerializer(serializers.Serializer):
 class AttendanceSubmitSerializer(serializers.Serializer):
     records = AttendanceEntrySerializer(many=True)
     reason = serializers.CharField(required=False, allow_blank=True, default="",
-                                   help_text="Required when changing attendance already recorded.")
+                                   help_text="Required when changing attendance already recorded, and for any "
+                                             "administrator correction after the coach edit window.")
 
 
 class AuditLogSerializer(serializers.ModelSerializer):

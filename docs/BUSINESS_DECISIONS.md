@@ -17,8 +17,9 @@ yet**; the current code may still behave differently until that phase lands.
 4. **Student accounts**: `STUDENT` is a real role for older (Elite/senior) students, linked
    one-to-one to a Student, limited to their own information. *(Foundation in Phase 0; student UI
    later.)*
-5. **Attendance** *(P5)*: coaches may edit attendance until **48 hours after the session ends**.
-   `UNMARKED` is neither Present nor Absent in the percentage and is shown separately.
+5. **Attendance** *(implemented in Phase 3, see `ATTENDANCE_AND_SUBSTITUTES.md`)*: coaches may edit
+   attendance until **48 hours after the session ends**; afterwards only an administrator correction
+   with a reason. `UNMARKED` is neither Present nor Absent in the percentage and is shown separately.
 6. **Competition payment** *(finance side implemented in Phase 1; full competition workflow P7)*: the fee is paid **at registration**: registration submitted →
    fee generated → payment required immediately → paid → `CONFIRMED`. (Not "approve first, charge
    later".)
@@ -38,6 +39,19 @@ yet**; the current code may still behave differently until that phase lands.
 **Phase 2 (admin guardrails)** added no new business rules. It makes the Django admin enforce the
 rules above in the same way as the API. See the "Django admin" section of `ROLES_AND_PERMISSIONS.md`
 and "Protection of financial history" in `FINANCE_ARCHITECTURE.md`. Admin paths that belong to
-later phases stay as they are for now: session coach and session status editing (P4),
-attendance edits without a reason or the 48-hour window (P5), and competition results for
-unconfirmed registrations (P7).
+later phases stay as they are for now: session date/time/class editing (P4) and competition
+results for unconfirmed registrations (P7). (Phase 3 closed the coach-slot and attendance admin paths.)
+
+**Phase 3 (substitute coach + attendance)** implements decision 5 and these rules, documented in
+`ATTENDANCE_AND_SUBSTITUTES.md`:
+* A substitute is a time-limited authorization for **one session**, with an explicit lifecycle
+  (`ASSIGNED` → `REVOKED` or `CANCELLED`, both final). There is at most **one active substitute per
+  session**. Revoking needs a reason. Cancelling a session cancels its substitute. History is never
+  deleted or reactivated.
+* A substitute can only be authorized for a scheduled session whose substitute access window has
+  not ended.
+* The 48-hour window ends exactly 48 hours after the session's end time in Malaysia time. At that
+  moment it is closed. After it, even a first-time entry is an administrator correction and needs a
+  reason.
+* Only students on the session's expected roster can be marked. Unmarked students are reported
+  separately and are left out of the percentage.

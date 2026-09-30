@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -398,18 +398,33 @@ class TrainingSession(AuditedModel):
         if self.end_time and self.start_time and self.end_time <= self.start_time:
             raise ValidationError("End time must be after start time.")
 
+    # Always the academy's time zone (settings.TIME_ZONE), never the server's or
+    # a per-request override: access windows and edit deadlines must not move.
     @property
     def starts_at(self):
-        return timezone.make_aware(datetime.datetime.combine(self.date, self.start_time))
+        return timezone.make_aware(datetime.datetime.combine(self.date, self.start_time),
+                                   timezone.get_default_timezone())
 
     @property
     def ends_at(self):
-        return timezone.make_aware(datetime.datetime.combine(self.date, self.end_time))
+        return timezone.make_aware(datetime.datetime.combine(self.date, self.end_time),
+                                   timezone.get_default_timezone())
 
     @property
     def duration_hours(self):
         seconds = (self.ends_at - self.starts_at).total_seconds()
         return (Decimal(seconds) / Decimal(3600)).quantize(Decimal("0.01"))
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            previous = None
+            if self.pk is not None:
+                previous = TrainingSession.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            super().save(*args, **kwargs)
+            if self.status == self.Status.CANCELLED and previous != self.Status.CANCELLED:
+                # Whichever path cancelled the session (API, admin, service), no
+                # substitute authorization may stay active on it.
+                SessionCoach.cancel_substitutes_for(self)
 
     def roster(self):
         """Students who were members of the class on the session date."""
@@ -418,12 +433,34 @@ class TrainingSession(AuditedModel):
         ).distinct().order_by("full_name")
 
 
+class SessionCoachQuerySet(models.QuerySet):
+    def delete(self):
+        if self.filter(role=SessionCoach.Role.SUBSTITUTE).exists():
+            raise PermissionDenied("Substitute authorizations are history and cannot be deleted; revoke them instead.")
+        return super().delete()
+
+    def substitutes(self):
+        return self.filter(role=SessionCoach.Role.SUBSTITUTE)
+
+    def active_substitutes(self):
+        return self.filter(role=SessionCoach.Role.SUBSTITUTE, status=SessionCoach.Status.ASSIGNED)
+
+
 class SessionCoach(AuditedModel):
     """Who coaches a particular session.
 
-    Regular coaches are copied from the class when sessions are generated. A
-    substitute row grants that coach temporary access to this session only,
-    between access_starts_at and access_ends_at.
+    Regular coaches are copied from the class when sessions are generated.
+
+    A SUBSTITUTE row is a temporary authorization: the substitute coach may see
+    this one session, its roster and its attendance, only while the row is
+    ASSIGNED and only between access_starts_at and access_ends_at. It never
+    grants the class. Lifecycle (``apps.academy.services``)::
+
+        ASSIGNED ──revoke_substitute──▶ REVOKED     (final)
+            └──────session cancelled──▶ CANCELLED   (final)
+
+    Rows are never deleted or reactivated; authorizing the same coach again
+    creates a new row, so every authorization keeps its own history.
     """
 
     audit_category = AuditCategory.ACCESS
@@ -433,28 +470,75 @@ class SessionCoach(AuditedModel):
         SUBSTITUTE = "SUBSTITUTE", "Substitute coach"
 
     class Status(models.TextChoices):
-        ASSIGNED = "ASSIGNED", "Assigned"
-        REPLACED = "REPLACED", "Replaced by substitute"
-        ABSENT = "ABSENT", "Did not attend"
+        ASSIGNED = "ASSIGNED", "Assigned"  # a substitute's active authorization
+        REPLACED = "REPLACED", "Replaced by substitute"  # regular coach only
+        ABSENT = "ABSENT", "Did not attend"  # regular coach only
+        REVOKED = "REVOKED", "Substitute authorization revoked"
+        CANCELLED = "CANCELLED", "Session cancelled"
+
+    ENDED = (Status.REVOKED, Status.CANCELLED)
+    REGULAR_STATUSES = (Status.ASSIGNED, Status.REPLACED, Status.ABSENT)
+    # Fixed once a substitute is authorized (who, which session, for whom, when, why).
+    SUBSTITUTE_FROZEN = ("session_id", "coach_id", "role", "replaces_id", "access_starts_at", "access_ends_at",
+                         "authorized_at", "reason")
+    ENDED_FROZEN = ("status", "revoked_at", "revocation_reason")
 
     session = models.ForeignKey(TrainingSession, on_delete=models.CASCADE, related_name="coach_slots")
     coach = models.ForeignKey(Coach, on_delete=models.PROTECT, related_name="session_slots")
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.REGULAR)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ASSIGNED)
     replaces = models.ForeignKey(
-        Coach, null=True, blank=True, on_delete=models.PROTECT, related_name="replaced_in_slots"
+        Coach, null=True, blank=True, on_delete=models.PROTECT, related_name="replaced_in_slots",
+        help_text="The original coach this substitute covers for.",
     )
     access_starts_at = models.DateTimeField(null=True, blank=True)
     access_ends_at = models.DateTimeField(null=True, blank=True)
     assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="Who authorized the substitute (or generated the regular slot).",
+    )
+    authorized_at = models.DateTimeField(null=True, blank=True)
+    reason = models.CharField(max_length=255, blank=True, help_text="Why the substitute was needed.")
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
-    reason = models.CharField(max_length=255, blank=True)
+    revocation_reason = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = SessionCoachQuerySet.as_manager()
+
     class Meta:
-        ordering = ["session", "role"]
-        constraints = [models.UniqueConstraint(fields=["session", "coach"], name="unique_coach_per_session")]
+        ordering = ["session", "role", "id"]
+        constraints = [
+            # One live slot per coach per session; revoked/cancelled rows are history.
+            models.UniqueConstraint(
+                fields=["session", "coach"], condition=~Q(status__in=["REVOKED", "CANCELLED"]),
+                name="unique_live_coach_per_session",
+            ),
+            # One-substitute-per-session rule, enforced by the database.
+            models.UniqueConstraint(
+                fields=["session"], condition=Q(role="SUBSTITUTE", status="ASSIGNED"),
+                name="one_active_substitute_per_session",
+            ),
+            models.CheckConstraint(
+                condition=Q(role="SUBSTITUTE") | Q(status__in=["ASSIGNED", "REPLACED", "ABSENT"]),
+                name="regular_slot_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(role="REGULAR") | Q(status__in=["ASSIGNED", "REVOKED", "CANCELLED"]),
+                name="substitute_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status__in=["REVOKED", "CANCELLED"]) | Q(revoked_at__isnull=False),
+                name="ended_substitute_has_revoked_at",
+            ),
+            models.CheckConstraint(
+                condition=Q(access_starts_at__isnull=True) | Q(access_ends_at__isnull=True)
+                | Q(access_starts_at__lt=models.F("access_ends_at")),
+                name="substitute_window_valid",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.coach} – {self.session} ({self.get_role_display()})"
@@ -464,13 +548,70 @@ class SessionCoach(AuditedModel):
         return self.role == self.Role.SUBSTITUTE
 
     @property
+    def is_active_substitute(self):
+        return self.is_substitute and self.status == self.Status.ASSIGNED
+
+    @property
     def is_paid(self):
         return self.status == self.Status.ASSIGNED and self.session.status != TrainingSession.Status.CANCELLED
 
     def access_open(self, at=None):
         at = at or timezone.now()
-        if self.status != self.Status.ASSIGNED:
+        if self.status != self.Status.ASSIGNED or self.session.status == TrainingSession.Status.CANCELLED:
             return False
         return (self.access_starts_at is None or self.access_starts_at <= at) and (
             self.access_ends_at is None or at <= self.access_ends_at
         )
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            old = SessionCoach.objects.filter(pk=self.pk).first()
+            if old is not None:
+                self._check_transition(old)
+        super().save(*args, **kwargs)
+
+    def _check_transition(self, old):
+        """Model-level guard; the same rules are enforced by a PostgreSQL trigger."""
+        if old.role != self.role:
+            raise ValidationError("A coach slot cannot change between regular and substitute.")
+        if old.role != self.Role.SUBSTITUTE:
+            return
+        if any(getattr(old, f) != getattr(self, f) for f in self.SUBSTITUTE_FROZEN):
+            raise ValidationError("A substitute authorization cannot be edited; revoke it and authorize again.")
+        if old.status in self.ENDED:
+            if any(getattr(old, f) != getattr(self, f) for f in self.ENDED_FROZEN):
+                raise ValidationError("A revoked or cancelled substitute authorization is final.")
+        elif self.status not in (self.Status.ASSIGNED, *self.ENDED):
+            raise ValidationError(f"Invalid substitute status: {self.status}")
+
+    def delete(self, *args, **kwargs):
+        if self.is_substitute:
+            raise PermissionDenied("Substitute authorizations are history and cannot be deleted; revoke them instead.")
+        return super().delete(*args, **kwargs)
+
+    @classmethod
+    def cancel_substitutes_for(cls, session):
+        """End every active substitute authorization of a cancelled session and
+        give the replaced coaches their slots back. History is kept."""
+        from apps.audit.context import get_actor
+
+        actor = get_actor()
+        now = timezone.now()
+        for slot in cls.objects.active_substitutes().filter(session=session).select_for_update():
+            slot.status = cls.Status.CANCELLED
+            slot.revoked_at = now
+            slot.revoked_by = actor
+            slot.revocation_reason = "Session cancelled"
+            slot.save()
+            slot.restore_replaced_coach()
+
+    def restore_replaced_coach(self):
+        if not self.replaces_id:
+            return
+        original = SessionCoach.objects.filter(
+            session_id=self.session_id, coach_id=self.replaces_id, role=self.Role.REGULAR,
+            status=self.Status.REPLACED,
+        ).first()
+        if original is not None:
+            original.status = self.Status.ASSIGNED
+            original.save()

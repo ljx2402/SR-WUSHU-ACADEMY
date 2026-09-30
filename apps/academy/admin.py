@@ -3,7 +3,7 @@ import datetime
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
 
@@ -202,7 +202,8 @@ class SessionCoachInline(admin.TabularInline):
     fk_name = "session"
     extra = 0
     can_delete = False
-    fields = ("coach", "role", "status", "replaces", "access_starts_at", "access_ends_at", "reason")
+    fields = ("coach", "role", "status", "replaces", "access_starts_at", "access_ends_at", "reason",
+              "revoked_at", "revocation_reason")
     readonly_fields = fields
 
     def has_add_permission(self, request, obj=None):
@@ -214,6 +215,55 @@ class SubstituteForm(forms.Form):
     replaces = forms.ModelChoiceField(queryset=Coach.objects.all(), required=False,
                                       help_text="The original coach who cannot attend.")
     reason = forms.CharField(max_length=255, required=False)
+
+
+class RevokeForm(forms.Form):
+    reason = forms.CharField(max_length=255, widget=forms.Textarea(attrs={"rows": 3}),
+                             help_text="Required. Stored on the authorization and in the audit log.")
+
+
+class AttendanceSheetForm(forms.Form):
+    """One status + remarks field per expected student; nothing else can be marked."""
+
+    reason = forms.CharField(
+        max_length=255, required=False, widget=forms.Textarea(attrs={"rows": 2}),
+        help_text="Required when changing a recorded mark, and for any correction after the coach edit window.",
+    )
+
+    def __init__(self, rows, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rows = rows
+        from apps.attendance.models import AttendanceStatus
+
+        for row in rows:
+            student = row["student"]
+            self.fields[f"status_{student.pk}"] = forms.ChoiceField(
+                choices=AttendanceStatus.choices, initial=row["status"], label=str(student))
+            self.fields[f"remarks_{student.pk}"] = forms.CharField(
+                max_length=255, required=False, initial=row["remarks"], label="Remarks")
+        self.expected_ids = {row["student"].pk for row in rows}
+
+    def clean(self):
+        cleaned = super().clean()
+        for key in self.data:
+            if key.startswith(("status_", "remarks_")):
+                suffix = key.split("_", 1)[1]
+                if not suffix.isdigit() or int(suffix) not in self.expected_ids:
+                    raise forms.ValidationError(f"Student {suffix} is not on the roster for this session.")
+        return cleaned
+
+    def sheet_rows(self):
+        return [(row["student"], self[f"status_{row['student'].pk}"], self[f"remarks_{row['student'].pk}"])
+                for row in self.rows]
+
+    def entries(self):
+        return [(row["student"], self.cleaned_data[f"status_{row['student'].pk}"],
+                 self.cleaned_data[f"remarks_{row['student'].pk}"]) for row in self.rows]
+
+
+def _page(model_admin, request, template, title, **context):
+    return render(request, template, {**model_admin.admin_site.each_context(request), "opts": model_admin.model._meta,
+                                      "title": title, **context})
 
 
 @admin.register(TrainingSession)
@@ -229,18 +279,22 @@ class TrainingSessionAdmin(NoDeleteMixin, admin.ModelAdmin):
         return [
             path("<int:pk>/substitute/", self.admin_site.admin_view(self.assign_substitute_view),
                  name="academy_trainingsession_substitute"),
+            path("<int:pk>/attendance/", self.admin_site.admin_view(self.attendance_view),
+                 name="academy_trainingsession_attendance"),
         ] + super().get_urls()
 
     def render_change_form(self, request, context, *args, **kwargs):
         context["can_assign_substitute"] = can(request.user, Cap.SUBSTITUTE_ASSIGN)
+        context["can_view_attendance"] = can(request.user, Cap.ATTENDANCE_VIEW_ALL)
         return super().render_change_form(request, context, *args, **kwargs)
 
     def assign_substitute_view(self, request, pk):
         if not can(request.user, Cap.SUBSTITUTE_ASSIGN):
             raise PermissionDenied
-        session = TrainingSession.objects.get(pk=pk)
+        session = get_object_or_404(TrainingSession, pk=pk)
         form = SubstituteForm(request.POST or None)
-        form.fields["replaces"].queryset = Coach.objects.filter(session_slots__session=session)
+        form.fields["replaces"].queryset = Coach.objects.filter(
+            session_slots__session=session, session_slots__role=SessionCoach.Role.REGULAR).distinct()
         if request.method == "POST" and form.is_valid():
             try:
                 services.assign_substitute(
@@ -259,19 +313,83 @@ class TrainingSessionAdmin(NoDeleteMixin, admin.ModelAdmin):
                    "opts": self.model._meta, "title": f"Assign substitute – {session}"}
         return render(request, "admin/academy/trainingsession/substitute.html", context)
 
+    def attendance_view(self, request, pk):
+        """The session's attendance sheet: every expected student, UNMARKED if not
+        marked. Saving goes through the attendance service (roster, 48-hour window,
+        reasons, audit), all or nothing."""
+        from apps.attendance import services as attendance_services
+
+        if not can(request.user, Cap.ATTENDANCE_VIEW_ALL):
+            raise PermissionDenied
+        session = get_object_or_404(TrainingSession, pk=pk)
+        can_record = can(request.user, (Cap.ATTENDANCE_TAKE_ANY, Cap.ATTENDANCE_CORRECT))
+        if request.method == "POST" and not can_record:
+            raise PermissionDenied
+        form = AttendanceSheetForm(attendance_services.session_sheet(session), request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                attendance_services.record_session_attendance(
+                    session, form.entries(), request.user, form.cleaned_data["reason"])
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                messages.success(request, "Attendance saved.")
+                return redirect(reverse("admin:academy_trainingsession_attendance", args=[pk]))
+        summary = attendance_services.session_summary(session)
+        return _page(self, request, "admin/academy/trainingsession/attendance.html", f"Attendance – {session}",
+                     session=session, form=form, summary=summary, can_record=can_record,
+                     state=attendance_services.session_state(session, summary),
+                     deadline=attendance_services.coach_edit_deadline(session))
+
 
 @admin.register(SessionCoach)
 class SessionCoachAdmin(admin.ModelAdmin):
-    list_display = ("session", "coach", "role", "status", "replaces", "access_starts_at", "access_ends_at")
+    """Read-only history of coach slots and substitute authorizations. Substitutes
+    are authorized from a session ("Assign substitute coach") and ended here with
+    "Revoke", both through the services; nothing is edited or deleted directly."""
+
+    list_display = ("session", "coach", "role", "status", "replaces", "access_starts_at", "access_ends_at",
+                    "revoked_at")
     list_filter = ("role", "status")
     search_fields = ("coach__full_name", "session__training_class__name")
+    change_form_template = "admin/academy/sessioncoach/change_form.html"
+
+    def get_urls(self):
+        return [
+            path("<int:pk>/revoke/", self.admin_site.admin_view(self.revoke_view),
+                 name="academy_sessioncoach_revoke"),
+        ] + super().get_urls()
 
     def has_add_permission(self, request):
-        # Use the "Assign substitute" button on a session so access windows are set correctly.
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def render_change_form(self, request, context, *args, **kwargs):
+        obj = context.get("original")
+        context["can_revoke"] = bool(obj and obj.is_active_substitute and can(request.user, Cap.SUBSTITUTE_REVOKE))
+        return super().render_change_form(request, context, *args, **kwargs)
+
+    def revoke_view(self, request, pk):
+        if not can(request.user, Cap.SUBSTITUTE_REVOKE):
+            raise PermissionDenied
+        slot = get_object_or_404(SessionCoach, pk=pk)
+        form = RevokeForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                services.revoke_substitute(slot, request.user, form.cleaned_data["reason"])
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                messages.success(request, "Substitute authorization revoked.")
+                return redirect(reverse("admin:academy_sessioncoach_change", args=[pk]))
+        return _page(self, request, "admin/finance/reason_form.html", f"Revoke substitute – {slot}", form=form,
+                     object=slot, warning="The substitute loses access to this session immediately. The "
+                                          "authorization stays on record as REVOKED and cannot be reactivated.")
 
 
 @admin.register(StudentAccount)

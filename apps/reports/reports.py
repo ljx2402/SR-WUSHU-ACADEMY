@@ -1,13 +1,14 @@
 """Report builders. Each returns (columns, rows) for JSON or CSV export."""
 
 import datetime
+from collections import defaultdict
 
 from django.db.models import Prefetch
 from django.utils import timezone
 
 from apps.academy.models import ClassCoach, Enrollment, Guardianship, Student, TrainingClass
-from apps.attendance.models import AttendanceRecord
-from apps.attendance.services import summarize
+from apps.attendance.models import MARKED_STATUSES, AttendanceRecord
+from apps.attendance.services import expected_pairs, held_sessions, summarize
 from apps.competitions.models import CompetitionRegistration, CompetitionResult
 from apps.finance.models import Charge, Invoice, Payment, Receipt, Refund
 from apps.payroll.models import Payslip
@@ -52,24 +53,40 @@ def students_report(params):
 
 
 def attendance_report(params):
+    """Per student and class: counts, expected sessions held, unmarked, and the
+    percentage. Unmarked sessions are listed separately and never counted as absent."""
     today = timezone.localdate()
     start = _date(params.get("start"), today.replace(day=1))
     end = _date(params.get("end"), today)
     records = AttendanceRecord.objects.filter(session__date__range=(start, end)).exclude(session__status="CANCELLED")
+    training_class = None
     if params.get("class"):
         records = records.filter(session__training_class_id=params["class"])
-    pairs = records.values_list("student_id", "session__training_class_id").distinct()
+        training_class = TrainingClass.objects.filter(pk=params["class"]).first()
+    # An unknown class id matches nothing (never "all classes").
+    sessions = [] if params.get("class") and training_class is None else held_sessions(start, end, training_class)
+    session_class = {session.id: session.training_class_id for session in sessions}
+    expected = defaultdict(set)
+    for session_id, student_id in expected_pairs(sessions):
+        expected[(student_id, session_class[session_id])].add(session_id)
+    marked = defaultdict(set)
+    for student_id, class_id, session_id in records.filter(status__in=MARKED_STATUSES).values_list(
+            "student_id", "session__training_class_id", "session_id"):
+        marked[(student_id, class_id)].add(session_id)
+    pairs = set(records.values_list("student_id", "session__training_class_id").distinct()) | set(expected)
     students = {s.id: s for s in Student.objects.filter(id__in={p[0] for p in pairs})}
     classes = {c.id: c for c in TrainingClass.objects.filter(id__in={p[1] for p in pairs})}
-    columns = ["student_no", "full_name", "class", "present", "late", "absent", "excused", "total", "attendance_pct",
-               "start", "end"]
+    columns = ["student_no", "full_name", "class", "present", "late", "absent", "excused", "total", "expected",
+               "unmarked", "attendance_pct", "start", "end"]
     rows = []
     for student_id, class_id in sorted(pairs, key=lambda p: (classes[p[1]].name, students[p[0]].full_name)):
         s = summarize(records.filter(student_id=student_id, session__training_class_id=class_id))
+        pair_expected = expected.get((student_id, class_id), set())
         student = students[student_id]
         rows.append([student.student_no, student.full_name, classes[class_id].name, s["present"], s["late"],
-                     s["absent"], s["excused"], s["total"], str(s["percentage"]) if s["percentage"] is not None else "",
-                     start.isoformat(), end.isoformat()])
+                     s["absent"], s["excused"], s["total"], len(pair_expected),
+                     len(pair_expected - marked.get((student_id, class_id), set())),
+                     str(s["percentage"]) if s["percentage"] is not None else "", start.isoformat(), end.isoformat()])
     return columns, rows
 
 

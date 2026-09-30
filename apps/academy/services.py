@@ -2,7 +2,7 @@ import datetime
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.accounts.capabilities import Cap, require
@@ -57,53 +57,92 @@ def substitute_access_window(session):
 
 @transaction.atomic
 def assign_substitute(session, substitute, replaces=None, actor=None, reason="", access_starts_at=None, access_ends_at=None):
-    """Assign a substitute coach to one session.
+    """Authorize a substitute coach for one session.
 
     The substitute gets access to this session, its roster and its attendance
     only, and only inside the access window. The replaced coach's slot is
     marked REPLACED so it is not paid for this session.
+
+    Rules: one active substitute per session (also a database constraint); the
+    session must be scheduled and not yet past the access window; the
+    substitute must not already coach this session; ``replaces`` must be a
+    regular coach still assigned to it.
     """
     require(actor, Cap.SUBSTITUTE_ASSIGN)
+    # Lock the session so two simultaneous authorizations are checked one after the other.
+    session = TrainingSession.objects.select_for_update().get(pk=session.pk)
     if session.status == TrainingSession.Status.CANCELLED:
         raise ValidationError("Cannot assign a substitute to a cancelled session.")
+    if session.status != TrainingSession.Status.SCHEDULED:
+        raise ValidationError("A substitute can only be authorized for a scheduled session.")
     if replaces is not None and replaces == substitute:
         raise ValidationError("A coach cannot substitute for themselves.")
+    if not substitute.is_active:
+        raise ValidationError(f"{substitute} is not an active coach.")
     default_start, default_end = substitute_access_window(session)
+    access_starts_at = access_starts_at or default_start
+    access_ends_at = access_ends_at or default_end
+    now = timezone.now()
+    if access_ends_at <= access_starts_at:
+        raise ValidationError("The access window must end after it starts.")
+    if access_ends_at <= now:
+        raise ValidationError("This session's substitute access window has already ended.")
+    current = SessionCoach.objects.active_substitutes().filter(session=session).select_related("coach").first()
+    if current is not None:
+        if current.coach_id == substitute.pk:
+            raise ValidationError(f"{substitute} is already the authorized substitute for this session.")
+        raise ValidationError(f"{current.coach} is already the authorized substitute for this session; "
+                              "revoke that authorization first.")
+    if session.coach_slots.exclude(status__in=SessionCoach.ENDED).filter(coach=substitute).exists():
+        raise ValidationError(f"{substitute} already coaches this session.")
+    original = None
+    if replaces is not None:
+        original = session.coach_slots.filter(coach=replaces, role=SessionCoach.Role.REGULAR).first()
+        if original is None or original.status != SessionCoach.Status.ASSIGNED:
+            raise ValidationError(f"{replaces} is not a regular coach currently assigned to this session.")
     with audit_context(actor, reason or "Substitute coach assigned"):
-        if replaces is not None:
-            original = SessionCoach.objects.filter(session=session, coach=replaces).first()
-            if original is None:
-                raise ValidationError(f"{replaces} is not assigned to this session.")
+        if original is not None:
             original.status = SessionCoach.Status.REPLACED
             original.save()
-        slot, _ = SessionCoach.objects.update_or_create(
-            session=session,
-            coach=substitute,
-            defaults={
-                "role": SessionCoach.Role.SUBSTITUTE,
-                "status": SessionCoach.Status.ASSIGNED,
-                "replaces": replaces,
-                "access_starts_at": access_starts_at or default_start,
-                "access_ends_at": access_ends_at or default_end,
-                "assigned_by": actor,
-                "reason": reason,
-            },
-        )
+        try:
+            with transaction.atomic():
+                slot = SessionCoach.objects.create(
+                    session=session,
+                    coach=substitute,
+                    role=SessionCoach.Role.SUBSTITUTE,
+                    status=SessionCoach.Status.ASSIGNED,
+                    replaces=replaces,
+                    access_starts_at=access_starts_at,
+                    access_ends_at=access_ends_at,
+                    assigned_by=actor,
+                    authorized_at=now,
+                    reason=reason,
+                )
+        except IntegrityError:
+            raise ValidationError("Another substitute was authorized for this session at the same time.") from None
     return slot
 
 
 @transaction.atomic
 def revoke_substitute(slot, actor=None, reason=""):
+    """End a substitute authorization. Access stops immediately; the row stays as history."""
     require(actor, Cap.SUBSTITUTE_REVOKE)
-    with audit_context(actor, reason or "Substitute access revoked"):
-        slot.status = SessionCoach.Status.ABSENT
-        slot.access_ends_at = timezone.now()
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("A reason is required to revoke a substitute authorization.")
+    slot = SessionCoach.objects.select_for_update().get(pk=slot.pk)
+    if not slot.is_substitute:
+        raise ValidationError("Only substitute authorizations can be revoked.")
+    if slot.status != SessionCoach.Status.ASSIGNED:
+        raise ValidationError(f"This substitute authorization was already {slot.status.lower()}.")
+    with audit_context(actor, reason):
+        slot.status = SessionCoach.Status.REVOKED
+        slot.revoked_at = timezone.now()
+        slot.revoked_by = actor
+        slot.revocation_reason = reason
         slot.save()
-        if slot.replaces_id:
-            original = SessionCoach.objects.filter(session=slot.session, coach_id=slot.replaces_id).first()
-            if original and original.status == SessionCoach.Status.REPLACED:
-                original.status = SessionCoach.Status.ASSIGNED
-                original.save()
+        slot.restore_replaced_coach()
+    return slot
 
 
 @transaction.atomic

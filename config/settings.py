@@ -154,6 +154,10 @@ ACADEMY = {
     # after the session ends the access remains (to finish attendance entry).
     "SUBSTITUTE_ACCESS_HOURS_BEFORE": 24,
     "SUBSTITUTE_ACCESS_HOURS_AFTER": 24,
+    # Coaches (regular or authorized substitute) may record and change attendance
+    # until this many hours after the session ends; afterwards only an
+    # administrator correction with a reason is possible.
+    "ATTENDANCE_COACH_EDIT_HOURS": 48,
     # Late counts as attended when calculating attendance percentage.
     "LATE_COUNTS_AS_PRESENT": True,
     "DEFAULT_TUITION_DUE_DAY": 7,
