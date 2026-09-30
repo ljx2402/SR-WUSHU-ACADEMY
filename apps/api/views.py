@@ -7,11 +7,12 @@ Records outside the caller's scope return 404.
 """
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Prefetch, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -43,7 +44,7 @@ from apps.competitions.models import (
 from apps.finance import access as finance_access
 from apps.finance import services as finance_services
 from apps.finance import proofs as proof_services
-from apps.finance.models import AcademyPaymentInfo, Charge, Invoice, PaymentProof
+from apps.finance.models import AcademyPaymentInfo, Charge, Invoice, Payment, PaymentProof, Receipt
 from apps.payroll import services as payroll_services
 from apps.payroll.models import PayrollRun, Payslip
 
@@ -78,6 +79,27 @@ def id_param(params, name):
     if not str(value).isdigit():
         raise ValidationError({name: "Must be a numeric id."})
     return int(value)
+
+
+def date_param(params, name):
+    """A YYYY-MM-DD date from the query string, or None. Anything else is a 400."""
+    value = params.get(name)
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise ValidationError({name: "Use a date as YYYY-MM-DD."}) from None
+
+
+def date_range(qs, params, field):
+    """Narrow ``qs`` to ``?start=`` / ``?end=`` (inclusive dates) on ``field``."""
+    start, end = date_param(params, "start"), date_param(params, "end")
+    if start:
+        qs = qs.filter(**{f"{field}__gte": start})
+    if end:
+        qs = qs.filter(**{f"{field}__lte": end})
+    return qs
 
 
 def summary_json(summary):
@@ -850,7 +872,8 @@ class InvoiceViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMi
     )
 
     def get_queryset(self):
-        qs = finance_access.invoices_for(self.request.user).prefetch_related("items")
+        qs = finance_access.invoices_for(self.request.user).prefetch_related(
+            "items__charge__competition_registration__event__competition")
         params = self.request.query_params
         if id_param(params, "family"):
             qs = qs.filter(family_id=id_param(params, "family"))
@@ -858,7 +881,19 @@ class InvoiceViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMi
             qs = qs.filter(status__in=params["status"].split(","))
         if params.get("outstanding"):
             qs = qs.filter(status__in=Invoice.OPEN_FOR_PAYMENT)
-        return qs
+        # Narrowing filters and search (never widen the caller's scope).
+        if id_param(params, "student"):
+            qs = qs.filter(items__student_id=id_param(params, "student"))
+        if params.get("kind") in Invoice.Kind.values:
+            qs = qs.filter(kind=params["kind"])
+        if params.get("overdue"):
+            qs = qs.filter(status__in=Invoice.OPEN_FOR_PAYMENT, due_date__lt=timezone.localdate())
+        qs = date_range(qs, params, "issue_date")
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(number__icontains=search) | Q(family_name__icontains=search) | Q(family__name__icontains=search)
+                           | Q(items__student_name__icontains=search) | Q(items__student_no__icontains=search))
+        return qs.distinct()
 
     def create(self, request, *args, **kwargs):
         data = s.InvoiceCreateSerializer(data=request.data)
@@ -897,13 +932,33 @@ class PaymentViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMi
     capabilities = caps(
         read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN),
         create=Cap.FINANCE_PAYMENTS_RECORD,
+        methods=Cap.FINANCE_PAYMENTS_RECORD,
         void=Cap.FINANCE_PAYMENTS_VOID,
         refund=Cap.FINANCE_REFUNDS_RECORD,
     )
 
     def get_queryset(self):
-        return finance_access.payments_for(self.request.user).select_related("receipt").prefetch_related(
+        qs = finance_access.payments_for(self.request.user).select_related("receipt", "family").prefetch_related(
             "allocations__invoice", "allocations__invoice_item")
+        params = self.request.query_params
+        if id_param(params, "family"):
+            qs = qs.filter(family_id=id_param(params, "family"))
+        if id_param(params, "invoice"):
+            qs = qs.filter(allocations__invoice_id=id_param(params, "invoice"))
+        if params.get("status") in Payment.Status.values:
+            qs = qs.filter(status=params["status"])
+        qs = date_range(qs, params, "received_at__date")
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(number__icontains=search) | Q(reference__icontains=search) | Q(payer_name__icontains=search)
+                           | Q(receipt__number__icontains=search) | Q(family__name__icontains=search)
+                           | Q(allocations__invoice__number__icontains=search))
+        return qs.distinct()
+
+    @action(detail=False, methods=["get"])
+    def methods(self, request):
+        """The payment methods the backend accepts (for the manual payment form)."""
+        return Response([{"value": value, "label": label} for value, label in Payment.Method.choices])
 
     def create(self, request, *args, **kwargs):
         data = s.PaymentCreateSerializer(data=request.data)
@@ -943,7 +998,19 @@ class ReceiptViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
     capabilities = caps(read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN))
 
     def get_queryset(self):
-        return finance_access.receipts_for(self.request.user)
+        qs = finance_access.receipts_for(self.request.user)
+        params = self.request.query_params
+        if id_param(params, "family"):
+            qs = qs.filter(payment__family_id=id_param(params, "family"))
+        if id_param(params, "invoice"):
+            qs = qs.filter(payment__allocations__invoice_id=id_param(params, "invoice"))
+        qs = date_range(qs, params, "issued_at__date")
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(number__icontains=search) | Q(payer_name__icontains=search)
+                           | Q(payment__reference__icontains=search) | Q(payment__number__icontains=search)
+                           | Q(payment__allocations__invoice__number__icontains=search))
+        return qs.distinct().order_by("-issued_at")
 
 
 class PaymentProofViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -973,7 +1040,14 @@ class PaymentProofViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveMo
             qs = qs.filter(family_id=id_param(params, "family"))
         if params.get("status"):
             qs = qs.filter(status__in=params["status"].split(","))
-        return qs
+        if id_param(params, "student"):
+            qs = qs.filter(invoice__items__student_id=id_param(params, "student"))
+        qs = date_range(qs, params, "uploaded_at__date")
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(invoice__number__icontains=search) | Q(family__name__icontains=search)
+                           | Q(reference__icontains=search) | Q(invoice__items__student_name__icontains=search))
+        return qs.distinct().order_by("-uploaded_at")
 
     def create(self, request, *args, **kwargs):
         # Ownership first: another family's invoice is "not found", whatever else is wrong.
@@ -1053,12 +1127,81 @@ class AcademyPaymentInfoView(ApiViewMixin, APIView):
     put = patch
 
 
+class FinanceDashboardView(ApiViewMixin, APIView):
+    """The finance staff overview (read only), computed from current records:
+    open invoices (unpaid / partially paid / overdue, and the amount still
+    due), today's and recent payments, recent receipts and, for proof
+    reviewers, the payment-proof queue. No new statuses: only the invoice,
+    payment and proof statuses the finance services maintain. No bank details,
+    file names or personal data beyond family names and amounts."""
+
+    capabilities = {"get": Cap.FINANCE_VIEW_ALL}
+    RECENT = 5
+    REVIEW_DAYS = 7
+
+    def get(self, request):
+        user = request.user
+        today = timezone.localdate()
+        zero = Decimal("0.00")
+        open_invoices = Invoice.objects.filter(status__in=Invoice.OPEN_FOR_PAYMENT)
+        overdue = open_invoices.filter(due_date__lt=today)
+
+        def invoice_ref(inv):
+            return {"id": inv.id, "number": inv.number, "family_name": inv.family_name, "kind": inv.kind,
+                    "status": inv.status, "due_date": inv.due_date, "total": str(inv.total),
+                    "balance_due": str(inv.balance_due)}
+
+        invoices = {
+            "unpaid": open_invoices.filter(status=Invoice.Status.ISSUED).count(),
+            "partially_paid": open_invoices.filter(status=Invoice.Status.PARTIALLY_PAID).count(),
+            "overdue": overdue.count(),
+            "outstanding_total": str(open_invoices.aggregate(t=Sum("balance_due"))["t"] or zero),
+            "competition_open": open_invoices.filter(kind=Invoice.Kind.COMPETITION).count(),
+            "competition_outstanding": str(open_invoices.filter(kind=Invoice.Kind.COMPETITION)
+                                           .aggregate(t=Sum("balance_due"))["t"] or zero),
+            "overdue_list": [invoice_ref(inv) for inv in overdue.order_by("due_date", "id")[:self.RECENT]],
+        }
+        valid = Payment.objects.filter(status=Payment.Status.VALID)
+        todays = valid.filter(received_at__date=today)
+        payments = {
+            "today_count": todays.count(),
+            "today_total": str(todays.aggregate(t=Sum("amount"))["t"] or zero),
+            "recent": [{"id": p.id, "number": p.number, "family_name": p.family.name, "amount": str(p.amount),
+                        "method": p.method, "received_at": p.received_at, "status": p.status,
+                        "receipt_number": getattr(getattr(p, "receipt", None), "number", None)}
+                       for p in Payment.objects.select_related("family", "receipt")[:self.RECENT]],
+        }
+        receipts = [{"id": r.id, "number": r.number, "issued_at": r.issued_at, "payer_name": r.payer_name,
+                     "total": str(r.total), "is_void": r.is_void}
+                    for r in Receipt.objects.select_related("void_record")[:self.RECENT]]
+        data = {"date": today, "invoices": invoices, "payments": payments, "receipts": receipts}
+        if can(user, Cap.FINANCE_PROOFS_REVIEW):
+            since = timezone.now() - timedelta(days=self.REVIEW_DAYS)
+            pending = PaymentProof.objects.filter(status=PaymentProof.Status.PENDING_REVIEW).select_related("invoice", "family")
+            accepted_open = PaymentProof.objects.filter(status=PaymentProof.Status.ACCEPTED, payment__isnull=True,
+                                                        invoice__status__in=Invoice.OPEN_FOR_PAYMENT)
+            data["proofs"] = {
+                "pending": pending.count(),
+                "accepted_recently": PaymentProof.objects.filter(status=PaymentProof.Status.ACCEPTED, reviewed_at__gte=since).count(),
+                "rejected_recently": PaymentProof.objects.filter(status=PaymentProof.Status.REJECTED, reviewed_at__gte=since).count(),
+                "accepted_awaiting_payment": accepted_open.count(),
+                "oldest_pending": [{"id": p.id, "invoice_number": p.invoice.number, "family_name": p.family.name,
+                                    "amount_claimed": str(p.amount_claimed) if p.amount_claimed is not None else None,
+                                    "uploaded_at": p.uploaded_at}
+                                   for p in pending.order_by("uploaded_at")[:self.RECENT]],
+            }
+        return Response(data)
+
+
 class RefundViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = s.RefundSerializer
     capabilities = caps(read=(Cap.FINANCE_VIEW_ALL, Cap.FINANCE_VIEW_OWN_CHILDREN))
 
     def get_queryset(self):
-        return finance_access.refunds_for(self.request.user)
+        qs = finance_access.refunds_for(self.request.user)
+        if id_param(self.request.query_params, "payment"):
+            qs = qs.filter(payment_id=id_param(self.request.query_params, "payment"))
+        return qs
 
 
 class CompetitionViewSet(ApiViewMixin, NoDestroyModelViewSet):

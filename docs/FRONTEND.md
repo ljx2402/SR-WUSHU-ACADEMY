@@ -8,8 +8,9 @@ to *show*, the API decides what is *allowed*.
 Phase 6A delivered the foundation: sign-in, the application shell, navigation, the design
 system, the API client, route protection and a dashboard built from real API data. Phase 6B
 added the **Parent Portal**, Phase 6C the **Coach Portal**, Phase 6D the **Student
-Portal** and Phase 6E the **Staff Core Operations Portal** (see below). The remaining staff
-pages (competitions, finance, payroll, reports) are built in later phases (6F–6J); until then each of their pages exists, is protected, and says "This page is not
+Portal**, Phase 6E the **Staff Core Operations Portal** and Phase 6F the **Finance Staff
+Portal** (see below). The remaining staff pages (competitions, payroll, reports) are built in
+later phases (6G–6J); until then each of their pages exists, is protected, and says "This page is not
 available yet" (no invented data).
 
 ## Technology (and why)
@@ -568,9 +569,42 @@ class roster shows names, student numbers and status only (the API's staff roste
 carries the health note and emergency contacts for `students.view_all`, as decided in 6C,
 but the page does not display them).
 
+## Finance Staff Portal (Phase 6F)
+
+A "Finance" menu section for SUPER_ADMIN, ADMIN and FINANCE_ADMIN; each page needs its own
+existing finance capability (see `FINANCE_ARCHITECTURE.md`), so ADMIN sees no void or invoice
+buttons and reads payment information only. Coaches, parents and students get "access denied"
+(and 403 from the API).
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/finance`, `/finance/dashboard` | Outstanding (unpaid / partially paid / overdue, amount due), competition invoices, payments today, proof queue, recent payments and receipts | `finance.view_all` |
+| `/finance/invoices`, `/finance/invoices/:id` | Search / filters; lines per student, payments and receipts, proofs, competition entry; issue / void only with `finance.invoices.manage` | `finance.view_all` |
+| `/finance/payments`, `/finance/payments/:id` | Search / filters; allocation, receipt, refunds; void (`finance.payments.void`), exceptional refund (`finance.refunds.record`) | `finance.view_all` |
+| `/finance/payments/new` | Manual payment (backend methods, confirmation, Idempotency-Key) | `finance.payments.record` |
+| `/finance/payment-proofs`, `/finance/payment-proofs/:id` | Review queue; secure download; accept (records no payment) / reject (reason) | `finance.proofs.review` |
+| `/finance/receipts`, `/finance/receipts/:id` | Receipts as issued; print | `finance.view_all` |
+| `/finance/payment-info` | Academy payment details and QR (edit with `finance.payment_info.manage`) | `finance.view_all` |
+
+Proof wording is fixed: "Pending review"; "Accepted — payment still requires recording" while
+no payment is linked and the invoice is open; "Rejected" with the reason; never "Paid" for a
+proof. The receipt document component and the authenticated download helper are shared with
+the Parent Portal.
+
 ## Tests
 
-`npm test` runs 175 tests: the Staff Portal suite (24, `src/staff/test/`: dashboard KPIs,
+`npm test` runs 199 tests: the Finance Staff Portal suite (24, `src/finance/test/`: dashboard
+totals and proof queue without bank details, error retry; invoice list with search/status/
+overdue sent to the API, detail with lines, payments and receipts, no generic edit, ADMIN
+without issue/void and with the competition entry, void with a required reason and the
+backend's refusal; proof queue defaulting to pending, detail with metadata and an API
+download without storage paths, accept sending no payment, reject with a required reason at
+the field, accepted-without-payment wording, paid invoice not asking for a payment; partial
+payment with backend methods, confirmation and Idempotency-Key, backend refusal shown,
+payment detail with allocation, receipt and an exceptional refund with reason, ADMIN without
+void; receipt as issued; payment information edit, QR type, read-only for ADMIN, QR error at
+the field; finance menu, coach/parent/student denied, payment form needs the capability,
+labelled cells for phones), the Staff Portal suite (24, `src/staff/test/`: dashboard KPIs,
 backend alerts and zero-count alerts hidden, no finance/medical data, `/staff` redirect and
 capability menu, error retry; student list without sensitive fields, search/status/class
 filters sent to the API, detail with masked IC and guardians without IC, recent changes,
@@ -626,8 +660,8 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 
 ## Known limitations
 
-* Staff competition, finance, payroll and report pages are placeholders until their phase
-  (6F–6J); the operations dashboard links to Django Admin for them meanwhile. Coach payslips
+* Staff competition, payroll and report pages are placeholders until their phase
+  (6G–6J); the operations dashboard links to Django Admin for them meanwhile. Coach payslips
   (the backend's existing `payroll.view_own`) are not shown in the Coach Portal; payroll
   screens are Phase 6I.
   Notifications and recent activity are marked "not available yet": the backend has no

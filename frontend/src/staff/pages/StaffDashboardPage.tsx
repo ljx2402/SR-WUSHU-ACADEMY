@@ -109,7 +109,7 @@ export function StaffDashboardPage() {
           <ul className="plain-list">
             {can(me, "competition.registrations.view_all") ? (
               <li><AdminLink path="competitions/">Competitions (Django Admin)</AdminLink></li>) : null}
-            {can(me, "finance.view_all") ? <li><AdminLink path="finance/">Finance (Django Admin)</AdminLink></li> : null}
+            {can(me, "finance.view_all") ? <li><Link className="tap-link" to="/finance/dashboard">Finance dashboard</Link></li> : null}
             <li><AdminLink>Academy administration (Django Admin)</AdminLink></li>
           </ul>
           <p className="muted">Django Admin has its own sign-in and stays available for deeper administration.</p>

@@ -6,6 +6,7 @@ import type {
   OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, StudentAttendanceResponse, StudentCompetitionEntry,
   StudentSelfProfile, StudentSession, TokenResponse, TrainingSession, StaffDashboard, StaffStudent, StaffStudentRow,
   StudentHistory, TrainingClass, Program, CoachRecord, AuditEntry, StudentEnrollment, StaffSessionSlot,
+  FinanceDashboard, StaffInvoice, StaffPayment, StaffPaymentProof, Refund,
 } from "./types";
 
 type Query = Record<string, QueryValue>;
@@ -82,6 +83,48 @@ export function endpoints(api: ApiClient) {
     register: (body: { student: number; event: number; competition?: number; notes?: string;
                        responses?: Record<string, unknown> }) =>
       api.post<CompetitionRegistration>("/api/competition-registrations/", body),
+    /* Finance staff portal (Phase 6F). Thin wrappers over the existing finance endpoints;
+       every rule (issued invoices immutable, allocation, receipts, proof review) is the backend's. */
+    financeDashboard: (signal?: AbortSignal) => api.get<FinanceDashboard>("/api/finance/dashboard/", undefined, signal),
+    staffInvoices: (query: { search?: string; status?: string; kind?: string; student?: number; family?: number;
+                             start?: string; end?: string; outstanding?: 1; overdue?: 1; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<StaffInvoice>>("/api/invoices/", query, signal),
+    staffInvoice: (id: number | string, signal?: AbortSignal) =>
+      api.get<StaffInvoice>(`/api/invoices/${encodeURIComponent(id)}/`, undefined, signal),
+    issueInvoice: (id: number, dueDate?: string) =>
+      api.post<StaffInvoice>(`/api/invoices/${id}/issue/`, dueDate ? { due_date: dueDate } : {}),
+    voidInvoice: (id: number, reason: string) => api.post<StaffInvoice>(`/api/invoices/${id}/void/`, { reason }),
+    staffPayments: (query: { search?: string; family?: number; invoice?: number; status?: string; start?: string;
+                             end?: string; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<StaffPayment>>("/api/payments/", query, signal),
+    staffPayment: (id: number | string, signal?: AbortSignal) =>
+      api.get<StaffPayment>(`/api/payments/${encodeURIComponent(id)}/`, undefined, signal),
+    paymentMethods: (signal?: AbortSignal) =>
+      api.get<{ value: string; label: string }[]>("/api/payments/methods/", undefined, signal),
+    /** Manual payment through the existing service (allocation, receipt, invoice status are the backend's). */
+    recordPayment: (body: { amount: string; method: string; payer_name?: string; reference?: string; received_at?: string;
+                            notes?: string; allocations: { invoice: number; amount: string }[] }, idempotencyKey: string) =>
+      api.request<StaffPayment>("/api/payments/", { method: "POST", body, idempotencyKey }),
+    voidPayment: (id: number, reason: string) => api.post<StaffPayment>(`/api/payments/${id}/void/`, { reason }),
+    refundPayment: (id: number, body: { allocation: number; amount: string; reason: string; method: string; reference?: string }) =>
+      api.post<Refund>(`/api/payments/${id}/refund/`, body),
+    refunds: (query: { payment?: number; page?: number }, signal?: AbortSignal) => api.get<Paginated<Refund>>("/api/refunds/", query, signal),
+    staffReceipts: (query: { search?: string; family?: number; invoice?: number; start?: string; end?: string;
+                             page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<Receipt>>("/api/receipts/", query, signal),
+    staffProofs: (query: { search?: string; status?: string; invoice?: number; family?: number; student?: number;
+                           start?: string; end?: string; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<StaffPaymentProof>>("/api/payment-proofs/", query, signal),
+    staffProof: (id: number | string, signal?: AbortSignal) =>
+      api.get<StaffPaymentProof>(`/api/payment-proofs/${encodeURIComponent(id)}/`, undefined, signal),
+    /** Records no money: the payment is recorded separately (and may be linked here). */
+    acceptProof: (id: number, body: { note?: string; payment?: number | null }) =>
+      api.post<StaffPaymentProof>(`/api/payment-proofs/${id}/accept/`, body),
+    rejectProof: (id: number, reason: string) => api.post<StaffPaymentProof>(`/api/payment-proofs/${id}/reject/`, { reason }),
+    /** Multipart: bank fields and an optional PNG/JPG QR (validated by the backend). */
+    updatePaymentInfo: (form: FormData) =>
+      api.request<AcademyPaymentInfo>("/api/payment-info/", { method: "PATCH", body: form, timeoutMs: 60_000 }),
+
     /* Staff portal (Phase 6E). The backend checks every capability and runs every change
        through its services (reasons, lifecycle rules, audit); these are thin wrappers. */
     staffDashboard: (signal?: AbortSignal) => api.get<StaffDashboard>("/api/staff/dashboard/", undefined, signal),

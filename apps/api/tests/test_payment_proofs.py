@@ -226,7 +226,7 @@ class StaffReviewTests(PaymentProofTestCase):
         self.proof_for_b()
         body = self.api(self.finance_user).get("/api/payment-proofs/").json()
         self.assertEqual(body["count"], 2)
-        self.assertIn("sha256", body["results"][0])
+        self.assertNotIn("sha256", body["results"][0])  # never returned (Phase 6F)
         pending = self.api(self.finance_user).get("/api/payment-proofs/", {"status": "PENDING_REVIEW"}).json()
         self.assertEqual(pending["count"], 2)
 

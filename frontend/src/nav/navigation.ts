@@ -41,15 +41,28 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { id: "staff-competitions", portal: "staff", label: "Competitions", path: "/staff/competitions",
     capabilities: ["competition.registrations.view_all", "competition.manage"], phase: "6H",
     description: "Competitions, events, registrations and results." },
-  { id: "staff-finance", portal: "staff", label: "Finance", path: "/staff/finance",
-    capabilities: ["finance.view_all"], phase: "6F",
-    description: "Charges, family invoices, payments, receipts and refunds." },
   { id: "staff-payroll", portal: "staff", label: "Payroll", path: "/staff/payroll",
     capabilities: ["payroll.view_all"], phase: "6I",
     description: "Coach rates, payroll periods and payslips." },
   { id: "staff-reports", portal: "staff", label: "Reports", path: "/staff/reports",
     capabilities: ["reports.students", "reports.attendance", "reports.competitions", "reports.finance", "reports.payroll"],
     phase: "6J", description: "Reports and exports." },
+
+  // Finance staff (Phase 6F): capability-driven. ADMIN, FINANCE_ADMIN and SUPER_ADMIN see the
+  // pages their finance capabilities allow; the backend refuses everything else (403).
+  { id: "finance-dashboard", portal: "finance", label: "Finance dashboard", path: "/finance/dashboard",
+    capabilities: ["finance.view_all"], phase: "6F", description: "Outstanding invoices, payments, receipts and proofs." },
+  { id: "finance-invoices", portal: "finance", label: "Invoices", path: "/finance/invoices",
+    capabilities: ["finance.view_all"], phase: "6F", description: "Family invoices." },
+  { id: "finance-payments", portal: "finance", label: "Payments", path: "/finance/payments",
+    capabilities: ["finance.view_all"], phase: "6F", description: "Payments received and exceptional refunds." },
+  { id: "finance-proofs", portal: "finance", label: "Payment proofs", path: "/finance/payment-proofs",
+    capabilities: ["finance.proofs.review"], phase: "6F", description: "Review parents' payment proofs." },
+  { id: "finance-receipts", portal: "finance", label: "Receipts", path: "/finance/receipts",
+    capabilities: ["finance.view_all"], phase: "6F", description: "Official receipts." },
+  { id: "finance-payment-info", portal: "finance", label: "Payment information", path: "/finance/payment-info",
+    capabilities: ["finance.payment_info.manage", "finance.view_all"], phase: "6F",
+    description: "The academy's bank details, instructions and QR code." },
 
   // Coach (COACH, including authorized substitute sessions): the Coach Portal (Phase 6C).
   // No finance, family, payroll or form-configuration pages here.
@@ -114,6 +127,11 @@ export interface SubRoute {
 export const SUB_ROUTES: readonly SubRoute[] = [
   { path: "/coach/sessions/:sessionId", parent: "coach-sessions" },
   { path: "/staff/students/:studentId", parent: "staff-students" },
+  { path: "/finance/invoices/:invoiceId", parent: "finance-invoices" },
+  { path: "/finance/payments/new", parent: "finance-payments", capabilities: ["finance.payments.record"] },
+  { path: "/finance/payments/:paymentId", parent: "finance-payments" },
+  { path: "/finance/payment-proofs/:proofId", parent: "finance-proofs" },
+  { path: "/finance/receipts/:receiptId", parent: "finance-receipts" },
   { path: "/staff/classes/:classId", parent: "staff-classes" },
   { path: "/staff/sessions/:sessionId", parent: "staff-sessions" },
   { path: "/staff/sessions/:sessionId/attendance", parent: "staff-attendance" },
@@ -131,4 +149,4 @@ export const SUB_ROUTES: readonly SubRoute[] = [
     capabilities: ["competition.register_own_children"] },
 ];
 
-export const PORTAL_ORDER: readonly Portal[] = ["staff", "coach", "parent", "student"];
+export const PORTAL_ORDER: readonly Portal[] = ["staff", "finance", "coach", "parent", "student"];

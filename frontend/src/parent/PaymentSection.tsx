@@ -3,6 +3,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 
 import { isApiError } from "../api/errors";
 import type { Invoice, PaymentProof } from "../api/types";
+import { download } from "../api/download";
 import { useServices } from "../app/services";
 import { Money, ProofStatusBadge } from "../domain/finance";
 import { academyToday, formatDate, formatDateTime } from "../domain/format";
@@ -179,18 +180,6 @@ export function ProofUploadForm({ invoice }: { invoice: Invoice }) {
       </form>
     </Section>
   );
-}
-
-async function download(fetchFile: () => Promise<Blob>, name: string) {
-  const blob = await fetchFile();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function ProofHistory({ invoice }: { invoice: Invoice }) {

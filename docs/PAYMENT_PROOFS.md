@@ -54,7 +54,7 @@ and refuses deletion (including bulk deletes).
 | `GET /api/payment-info/` | parents (`finance.view_own_children`), finance staff | Bank name, account name/number, instructions, reference instructions, QR code as a `data:` URI (so it displays under the Content-Security-Policy). `updated_by_name` only for managers |
 | `PATCH /api/payment-info/` (multipart or JSON) | `finance.payment_info.manage` (FINANCE_ADMIN, SUPER_ADMIN) | `qr_code` upload (PNG/JPEG, 1 MB), `remove_qr_code` |
 | `POST /api/payment-proofs/` (multipart) | `finance.proofs.upload_own` (PARENT) | `invoice`, `file`, optional `amount_claimed`, `payment_date`, `reference`, `note`. Another family's (or unknown) invoice → **404**, checked before anything else |
-| `GET /api/payment-proofs/?invoice=&family=&status=` | parents (own families), `finance.proofs.review` (all) | No storage path is ever returned; `sha256` and `reviewed_by_name` only for reviewers |
+| `GET /api/payment-proofs/?invoice=&family=&status=` | parents (own families), `finance.proofs.review` (all) | No storage path or checksum is ever returned (the checksum stays in the database and admin since 6F); `reviewed_by_name` only for reviewers. Staff filters: `student`, `start` / `end` (upload date), `search` (invoice no., family, student, bank reference) |
 | `GET /api/payment-proofs/:id/file/` | same scope as above | Download (`Content-Disposition: attachment`, `nosniff`, `CSP: default-src 'none'; sandbox`, `Cache-Control: private, no-store`) |
 | `POST /api/payment-proofs/:id/accept/` `{note?, payment?}` | `finance.proofs.review` (ADMIN, FINANCE_ADMIN, SUPER_ADMIN) | Pending proofs only |
 | `POST /api/payment-proofs/:id/reject/` `{reason}` | `finance.proofs.review` | Reason required; pending proofs only |
@@ -72,8 +72,8 @@ screens are part of Phase 6F.
   script).
 * Size: 5 MB per proof (`PAYMENT_PROOF_MAX_BYTES`), 1 MB per QR (`PAYMENT_QR_MAX_BYTES`).
 * Names: stored as `payment-proofs/YYYY/MM/<random 32 hex>.<ext>`; the user's file name is only
-  kept as a sanitized label for downloads. A SHA-256 checksum is stored (reviewers can spot
-  the same file uploaded twice).
+  kept as a sanitized label for downloads. A SHA-256 checksum is stored (visible in Django
+  Admin to spot the same file uploaded twice; never returned by the API).
 * Storage: the Django storage alias **`private`** (`settings.STORAGES`), a directory
   (`PRIVATE_MEDIA_ROOT`, default `private_media/`, git-ignored) that is **never served by the
   web server**. Files are only returned by the permission-checked download view. There are no
@@ -122,3 +122,27 @@ receipt; coach and student refused everywhere; finance cannot upload; super admi
 audit entries without file data; competition flow (rejected proof → still pending, accepted
 proof → still pending, partial payment → still pending, full payment → CONFIRMED with receipt,
 history kept); payment information read by parents, managed by finance only, QR validated.
+
+## Finance Staff Portal review (Phase 6F)
+
+`/finance/payment-proofs` lists proofs (pending review by default; accepted, rejected, all),
+searchable by invoice number, family, student or bank reference and filterable by upload date.
+`/finance/payment-proofs/:id` shows the invoice (status, balance), family, claimed amount,
+payment date, bank reference, the family's note, uploader, reviewer and review note, and:
+
+* **Download proof**: an authenticated request to `…/file/` (permission-checked; attachment,
+  `no-store`, `nosniff`, sandboxed CSP). The browser receives the bytes as a Blob; no storage
+  path, private URL or checksum ever reaches the page.
+* **Accept** (optional note; optionally link a payment already recorded for the same family):
+  the proof becomes ACCEPTED. **No payment, receipt, invoice or registration changes.** Until a
+  payment is linked or the invoice is paid, the page and the dashboard say "Accepted — payment
+  still requires recording" and link to the payment form for that invoice.
+* **Reject** (reason required, checked at the field and by the service): the proof becomes
+  REJECTED; the family sees the reason in the Parent Portal; nothing financial changes.
+
+The payment itself is recorded on `/finance/payments/new` (the existing payment service); that
+issues the receipt, updates the invoice and confirms a fully paid competition entry. The whole
+chain was verified in a real browser: upload → pending → reject (parent sees the reason) →
+accept (invoice still unpaid, entry still pending, no payment) → payment → invoice paid →
+receipt → competition entry confirmed.
+

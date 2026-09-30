@@ -23,6 +23,8 @@ export interface RequestOptions {
   anonymous?: boolean;
   /** "blob" for file downloads (the response body is returned as a Blob). */
   responseType?: "json" | "blob";
+  /** Sent as `Idempotency-Key`: a retried payment submission never records twice (backend rule). */
+  idempotencyKey?: string;
 }
 
 export interface ApiClientConfig {
@@ -61,6 +63,7 @@ export class ApiClient {
     const headers: Record<string, string> = { Accept: "application/json" };
     const token = options.anonymous ? null : this.getToken();
     if (token) headers.Authorization = `Token ${token}`;
+    if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
     const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
     // FormData sets its own multipart Content-Type (with the boundary).
     if (options.body !== undefined && !isForm) headers["Content-Type"] = "application/json";

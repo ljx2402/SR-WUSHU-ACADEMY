@@ -46,6 +46,7 @@ urlpatterns = [
     path("students/me/competitions/", views.StudentSelfViewSet.as_view({"get": "competitions"}),
          name="student-me-competitions"),
     path("staff/dashboard/", views.StaffDashboardView.as_view(), name="staff-dashboard"),
+    path("finance/dashboard/", views.FinanceDashboardView.as_view(), name="finance-dashboard"),
     path("reports/", ReportIndexView.as_view(), name="report-index"),
     path("reports/<str:name>/", ReportView.as_view(), name="report"),
     path("", include(router.urls)),

@@ -496,6 +496,17 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         fields = ["id", "student", "student_no", "student_name", "description", "fee_type", "period_start",
                   "period_end", "quantity", "unit_amount", "discount", "amount", "amount_paid", "is_active"]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if can(getattr(request, "user", None), Cap.FINANCE_VIEW_ALL):
+            # Finance staff: which competition entry a competition line pays for (status only).
+            registration = getattr(instance.charge, "competition_registration", None)
+            data["competition_registration"] = None if registration is None else {
+                "id": registration.id, "competition_name": registration.event.competition.name,
+                "event_name": registration.event.name, "status": registration.status}
+        return data
+
 
 class InvoiceSerializer(HideStaffNotesMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
@@ -508,7 +519,7 @@ class InvoiceSerializer(HideStaffNotesMixin, serializers.ModelSerializer):
 
     def get_items(self, obj):
         items = obj.items.all() if obj.status == Invoice.Status.VOID else obj.active_items()
-        return InvoiceItemSerializer(items, many=True).data
+        return InvoiceItemSerializer(items, many=True, context=self.context).data
 
 
 class InvoiceCreateSerializer(serializers.Serializer):
@@ -816,7 +827,7 @@ class RoleChangeSerializer(serializers.Serializer):
 class PaymentProofSerializer(serializers.ModelSerializer):
     """A parent's payment proof. The file itself is only available through the
     permission-checked download action; its storage path is never returned.
-    Reviewer-only details (who reviewed, file checksum) are left out for parents."""
+    Who reviewed it is left out for parents; the checksum is never returned."""
 
     family_name = serializers.CharField(source="family.name", read_only=True)
     invoice_number = serializers.CharField(source="invoice.number", read_only=True)
@@ -827,12 +838,13 @@ class PaymentProofSerializer(serializers.ModelSerializer):
     reviewed_by_name = serializers.SerializerMethodField()
     payment_number = serializers.CharField(source="payment.number", read_only=True, default=None)
 
-    REVIEWER_ONLY = ("reviewed_by_name", "sha256")
+    # The file's checksum and storage name stay server-side (admin / database only).
+    REVIEWER_ONLY = ("reviewed_by_name",)
 
     class Meta:
         model = PaymentProof
         fields = ["id", "family", "family_name", "invoice", "invoice_number", "invoice_status", "invoice_balance_due",
-                  "uploaded_by_name", "uploaded_at", "original_name", "content_type", "size", "sha256",
+                  "uploaded_by_name", "uploaded_at", "original_name", "content_type", "size",
                   "amount_claimed", "payment_date", "reference", "note", "status", "reviewed_by_name",
                   "reviewed_at", "review_note", "payment", "payment_number"]
         read_only_fields = fields

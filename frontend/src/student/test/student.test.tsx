@@ -177,7 +177,7 @@ describe("my profile", () => {
 describe("route guards", () => {
   it("a student cannot open parent, finance, coach or staff pages", async () => {
     for (const route of ["/parent/finance", "/parent/family", "/parent/competitions/81/register", "/coach/dashboard",
-                         "/coach/sessions/701/attendance", "/staff/finance", "/staff/students"]) {
+                         "/coach/sessions/701/attendance", "/finance/dashboard", "/staff/students"]) {
       const { unmount } = renderApp({ route, routes: studentRoutes() });
       expect(await screen.findByTestId("access-denied")).toBeInTheDocument();
       unmount();

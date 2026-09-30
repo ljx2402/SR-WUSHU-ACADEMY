@@ -223,7 +223,7 @@ describe("attendance index and competitions", () => {
 
 describe("route guards", () => {
   it("a coach cannot open finance, family or staff pages by URL", async () => {
-    for (const route of ["/parent/finance", "/parent/family", "/staff/finance", "/staff/payroll"]) {
+    for (const route of ["/parent/finance", "/parent/family", "/finance/dashboard", "/staff/payroll"]) {
       const { unmount } = renderApp({ route, routes: coachRoutes() });
       expect(await screen.findByTestId("access-denied")).toBeInTheDocument();
       unmount();

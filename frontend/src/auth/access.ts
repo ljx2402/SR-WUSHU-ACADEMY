@@ -12,10 +12,12 @@ import type { Me, Role } from "../api/types";
  * parent or coach sections), pages from capabilities.
  */
 
-export type Portal = "staff" | "coach" | "parent" | "student";
+export type Portal = "staff" | "finance" | "coach" | "parent" | "student";
 
 export const PORTAL_ROLES: Record<Portal, Role[]> = {
   staff: ["SUPER_ADMIN", "ADMIN", "FINANCE_ADMIN"],
+  // Finance staff pages (Phase 6F); each page still needs its own finance capability.
+  finance: ["SUPER_ADMIN", "ADMIN", "FINANCE_ADMIN"],
   coach: ["COACH"],
   parent: ["PARENT"],
   student: ["STUDENT"],
@@ -23,6 +25,7 @@ export const PORTAL_ROLES: Record<Portal, Role[]> = {
 
 export const PORTAL_LABELS: Record<Portal, string> = {
   staff: "Academy staff",
+  finance: "Finance",
   coach: "Coaching",
   parent: "My family",
   student: "My training",

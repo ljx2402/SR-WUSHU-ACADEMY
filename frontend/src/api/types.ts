@@ -353,6 +353,54 @@ export interface CompetitionRegistration {
   form_responses?: FormAnswer[];
 }
 
+/* ------------------------------------------------------------------ finance staff portal (Phase 6F) */
+
+/** GET /api/finance/dashboard/ : totals and lists computed from the finance records. */
+export interface FinanceDashboard {
+  date: string;
+  invoices: {
+    unpaid: number; partially_paid: number; overdue: number; outstanding_total: string;
+    competition_open: number; competition_outstanding: string;
+    overdue_list: { id: number; number: string; family_name: string; kind: string; status: Invoice["status"];
+                    due_date: string | null; total: string; balance_due: string }[];
+  };
+  payments: {
+    today_count: number; today_total: string;
+    recent: { id: number; number: string; family_name: string; amount: string; method: string; received_at: string;
+              status: Payment["status"]; receipt_number: string | null }[];
+  };
+  receipts: { id: number; number: string; issued_at: string; payer_name: string; total: string; is_void: boolean }[];
+  /** Only for payment-proof reviewers. */
+  proofs?: {
+    pending: number; accepted_recently: number; rejected_recently: number; accepted_awaiting_payment: number;
+    oldest_pending: { id: number; invoice_number: string; family_name: string; amount_claimed: string | null;
+                      uploaded_at: string }[];
+  };
+}
+
+/** Invoice as finance staff receive it (lines carry the competition entry they pay for). */
+export interface StaffInvoice extends Invoice {
+  notes?: string;
+  issued_at: string | null;
+  items: (InvoiceItem & { competition_registration?: { id: number; competition_name: string; event_name: string;
+                                                       status: string } | null })[];
+}
+
+export interface StaffPayment extends Payment {
+  family: number;
+  payer_name: string;
+  notes?: string;
+}
+
+export interface Refund {
+  id: number; number: string; payment: number; allocation: number; amount: string; method: string; reference: string;
+  reason: string; refunded_at: string;
+}
+
+export interface StaffPaymentProof extends PaymentProof {
+  reviewed_by_name?: string | null;
+}
+
 /* ------------------------------------------------------------------ staff portal (Phase 6E) */
 /* Academy staff views. What each field holds depends on the caller's capabilities: the
  * backend returns the full record to `students.view_all` and a directory to finance. */

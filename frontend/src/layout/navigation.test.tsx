@@ -33,15 +33,15 @@ describe("role-based navigation", () => {
 
   it("admin sees staff pages matching their capabilities only", async () => {
     await renderAs(["ADMIN"]);
-    expect(sectionTitles()).toEqual(["Academy staff"]);
+    expect(sectionTitles()).toEqual(["Academy staff", "Finance"]);
     expect(within(sidebar()).getByRole("link", { name: "Attendance" })).toBeInTheDocument();
-    expect(within(sidebar()).getByRole("link", { name: "Finance" })).toBeInTheDocument();
+    expect(within(sidebar()).getByRole("link", { name: "Finance dashboard" })).toBeInTheDocument();
     expect(within(sidebar()).queryByRole("link", { name: "Payroll" })).not.toBeInTheDocument();
   });
 
   it("finance admin sees finance and payroll but not attendance", async () => {
     await renderAs(["FINANCE_ADMIN"]);
-    expect(within(sidebar()).getByRole("link", { name: "Finance" })).toBeInTheDocument();
+    expect(within(sidebar()).getByRole("link", { name: "Finance dashboard" })).toBeInTheDocument();
     expect(within(sidebar()).getByRole("link", { name: "Payroll" })).toBeInTheDocument();
     expect(within(sidebar()).queryByRole("link", { name: "Attendance" })).not.toBeInTheDocument();
   });
@@ -57,7 +57,7 @@ describe("role-based navigation", () => {
 
   it("a super admin gets the staff section only, not parent or coach sections", async () => {
     await renderAs(["SUPER_ADMIN"]);
-    expect(sectionTitles()).toEqual(["Academy staff"]);
+    expect(sectionTitles()).toEqual(["Academy staff", "Finance"]);
   });
 
   it("lists every role in the user menu", async () => {
@@ -70,7 +70,7 @@ describe("role-based navigation", () => {
 
 describe("route protection", () => {
   it("direct navigation to another portal's page shows access denied", async () => {
-    await renderAs(["PARENT"], "/staff/finance");
+    await renderAs(["PARENT"], "/finance/invoices");
     expect(screen.getByTestId("access-denied")).toHaveTextContent("You don’t have permission to access this page.");
   });
 
@@ -80,10 +80,10 @@ describe("route protection", () => {
   });
 
   it("an allowed page that is not built yet says so (no invented data)", async () => {
-    await renderAs(["FINANCE_ADMIN"], "/staff/finance");
-    expect(screen.getByRole("heading", { level: 1, name: "Finance" })).toBeInTheDocument();
-    expect(screen.getByTestId("not-implemented")).toHaveTextContent("Phase 6F");
-    expect(document.title).toBe("Finance · SR Wushu Academy");
+    await renderAs(["FINANCE_ADMIN"], "/staff/payroll");
+    expect(screen.getByRole("heading", { level: 1, name: "Payroll" })).toBeInTheDocument();
+    expect(screen.getByTestId("not-implemented")).toHaveTextContent("Phase 6I");
+    expect(document.title).toBe("Payroll · SR Wushu Academy");
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
   });
 

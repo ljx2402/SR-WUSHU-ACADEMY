@@ -224,6 +224,15 @@ In short:
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
 
+## Finance Staff Portal (Phase 6F)
+
+No new capabilities. The finance menu shows each page only with its existing capability and
+the API refuses the rest: ADMIN views finance, records payments, reviews proofs and records
+exceptional refunds, but cannot void payments, issue or void invoices, or change the academy's
+payment information (read only). FINANCE_ADMIN and SUPER_ADMIN can do all of these. COACH and
+STUDENT have no finance access; PARENT only its own families through the Parent Portal. The
+full matrix is in `FINANCE_ARCHITECTURE.md` ("Finance Staff Portal").
+
 ## Staff Core Operations Portal (Phase 6E)
 
 No new capabilities; every page and action uses the existing ones, never the job title:

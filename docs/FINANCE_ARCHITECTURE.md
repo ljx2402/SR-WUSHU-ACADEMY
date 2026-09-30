@@ -190,11 +190,13 @@ are never logged. Masking of IC, bank and medical values in audit entries is Pha
 | Endpoint | Purpose |
 |---|---|
 | `/api/families/` | Households (staff manage; parents see their own) |
-| `/api/invoices/` | List/retrieve. Staff with invoice rights: `POST` (family + charges → draft), `…/{id}/issue/`, `…/{id}/void/` (reason), `generate-drafts/` |
-| `/api/payments/` | List/retrieve. `POST` with `amount`, `method`, `allocations: [{invoice, amount}]`, optional `received_at`, `reference`, `payer_name`, `Idempotency-Key` header. `…/{id}/void/`, `…/{id}/refund/` |
+| `/api/invoices/` | List/retrieve (filters: `search` number / family / student name or no., `status`, `kind`, `student`, `family`, `start` / `end` issue date, `outstanding`, `overdue`; staff see each line's competition entry). Staff with invoice rights: `POST` (family + charges → draft), `…/{id}/issue/`, `…/{id}/void/` (reason), `generate-drafts/` |
+| `/api/payments/` | List/retrieve (filters: `search` number / reference / payer / receipt / invoice, `family`, `invoice`, `status`, `start` / `end`). `POST` with `amount`, `method`, `allocations: [{invoice, amount}]`, optional `received_at`, `reference`, `payer_name`, `Idempotency-Key` header. `…/{id}/void/`, `…/{id}/refund/` |
 | `/api/receipts/`, `/receipts/{id}/` | Receipt content / printable page |
 | `/invoices/{id}/` | Printable invoice |
-| `/api/refunds/` | Refund records |
+| `/api/refunds/` | Refund records (`?payment=`) |
+| `/api/finance/dashboard/` | Finance staff overview (read only, `finance.view_all`): open / partially paid / overdue invoices and the amount due, competition invoices, today's and recent payments, recent receipts; the proof queue for `finance.proofs.review` |
+| `/api/payments/methods/` | The payment methods the service accepts (for the manual payment form) |
 | `/api/reports/invoices/`, `/api/reports/refunds/` | Finance reports |
 
 ## Payment proofs
@@ -202,3 +204,40 @@ are never logged. Masking of IC, bank and medical values in audit entries is Pha
 Parents upload evidence of manual payments (`PaymentProof`); staff review it and then record
 the payment as above. A proof never records money or changes an invoice. See
 `docs/PAYMENT_PROOFS.md`.
+
+## Finance Staff Portal (Phase 6F)
+
+The React finance pages (`/finance/...`) are an operational front end over the services above;
+they add no finance rules and no second payment, invoice or receipt system. Django Admin stays
+available.
+
+* **Invoices**: list with search and filters (backend pagination), detail with the lines per
+  student, the payments applied (with receipts), the proofs uploaded and, for competition lines,
+  the entry and its status. No generic edit: only the existing *issue* (draft) and *void*
+  (reason; refused once payments exist) operations, for `finance.invoices.manage`.
+* **Payments**: manual only. The form picks one family's issued invoices and the amount for
+  each (partial allowed, overpayment refused by the service), the method from
+  `/api/payments/methods/`, the date, reference and note; it sends an `Idempotency-Key` so a
+  retry cannot record twice. The service allocates over the lines, updates the invoice
+  (PARTIALLY_PAID / PAID), issues the receipt and confirms a fully paid competition entry. The
+  payment page offers *void* (`finance.payments.void`, reason) and *exceptional refund*
+  (`finance.refunds.record`, one line, amount, reason; the payment and receipt stay intact).
+* **Receipts**: list and the receipt exactly as issued (the frozen `content`), printed with the
+  browser (the Django print page needs a Django session and is unchanged).
+* **Payment information**: read by every finance viewer; edited (bank fields, instructions, PNG
+  / JPG QR validated by content) only with `finance.payment_info.manage`, audited.
+
+| Staff capability (existing) | SUPER_ADMIN | FINANCE_ADMIN | ADMIN |
+|---|---|---|---|
+| Finance dashboard, invoices, payments, receipts (view) — `finance.view_all` | ✅ | ✅ | ✅ |
+| Record payment — `finance.payments.record` | ✅ | ✅ | ✅ |
+| Review proofs — `finance.proofs.review` | ✅ | ✅ | ✅ |
+| Exceptional refund — `finance.refunds.record` | ✅ | ✅ | ✅ |
+| Void payment — `finance.payments.void` | ✅ | ✅ | — |
+| Issue / void invoices — `finance.invoices.manage` | ✅ | ✅ | — |
+| Payment information (manage) — `finance.payment_info.manage` | ✅ | ✅ | read only |
+
+COACH and STUDENT have no finance capability (403 everywhere); PARENT keeps its own families'
+records through the Parent Portal only (other families 404, staff finance endpoints 403).
+Reads are not audited (there is no read-audit mechanism); every mutation above is.
+

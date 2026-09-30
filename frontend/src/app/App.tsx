@@ -27,6 +27,13 @@ import { CoachAttendancePage } from "../coach/pages/CoachAttendancePage";
 import { CoachCompetitionsPage } from "../coach/pages/CoachCompetitionsPage";
 import { CoachDashboardPage } from "../coach/pages/CoachDashboardPage";
 import { CoachAttendanceIndexPage, CoachSessionDetailPage, CoachSessionsPage } from "../coach/pages/CoachSessionPages";
+import { FinanceDashboardPage } from "../finance/pages/FinanceDashboardPage";
+import { FinanceInvoiceDetailPage, FinanceInvoicesPage } from "../finance/pages/FinanceInvoicePages";
+import { FinancePaymentDetailPage, FinancePaymentsPage, RecordPaymentPage } from "../finance/pages/FinancePaymentPages";
+import { FinanceProofDetailPage, FinanceProofsPage } from "../finance/pages/FinanceProofPages";
+import {
+  FinanceReceiptDetailPage, FinanceReceiptsPage, PaymentInfoPage,
+} from "../finance/pages/FinanceReceiptAndInfoPages";
 import { StaffClassDetailPage, StaffClassesPage, StaffTimetablePage } from "../staff/pages/StaffClassPages";
 import { StaffDashboardPage } from "../staff/pages/StaffDashboardPage";
 import {
@@ -51,6 +58,17 @@ const PAGES: Record<string, ReactNode> = {
   "coach-competitions": <CoachCompetitionsPage />,
   "/coach/sessions/:sessionId": <CoachSessionDetailPage />,
   "/coach/sessions/:sessionId/attendance": <CoachAttendancePage />,
+  "finance-dashboard": <FinanceDashboardPage />,
+  "finance-invoices": <FinanceInvoicesPage />,
+  "finance-payments": <FinancePaymentsPage />,
+  "finance-proofs": <FinanceProofsPage />,
+  "finance-receipts": <FinanceReceiptsPage />,
+  "finance-payment-info": <PaymentInfoPage />,
+  "/finance/invoices/:invoiceId": <FinanceInvoiceDetailPage />,
+  "/finance/payments/new": <RecordPaymentPage />,
+  "/finance/payments/:paymentId": <FinancePaymentDetailPage />,
+  "/finance/payment-proofs/:proofId": <FinanceProofDetailPage />,
+  "/finance/receipts/:receiptId": <FinanceReceiptDetailPage />,
   "staff-dashboard": <StaffDashboardPage />,
   "staff-students": <StaffStudentsPage />,
   "staff-classes": <StaffClassesPage />,
@@ -125,6 +143,7 @@ export const appRoutes: RouteObject[] = [
           { path: "/coach", element: <Navigate to="/coach/dashboard" replace /> },
           { path: "/student", element: <Navigate to="/student/dashboard" replace /> },
           { path: "/staff", element: <Navigate to="/staff/dashboard" replace /> },
+          { path: "/finance", element: <Navigate to="/finance/dashboard" replace /> },
           { path: "/parent/students", element: <Navigate to="/parent/family" replace /> },
           {
             element: <ParentLayout />,

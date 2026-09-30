@@ -6,6 +6,7 @@ import { allPages } from "../../api/endpoints";
 import { isApiError } from "../../api/errors";
 import type { Charge, Invoice, InvoiceItem, Payment, PaymentProof, Receipt } from "../../api/types";
 import { useServices } from "../../app/services";
+import { ReceiptDocument } from "../../finance/ReceiptDocument";
 import { can } from "../../auth/access";
 import { useMe } from "../../auth/AuthProvider";
 import {
@@ -369,51 +370,12 @@ export function ReceiptDetailPage() {
     return <ErrorState error={receipt.error} onRetry={() => receipt.refetch()} />;
   }
   const r = receipt.data;
-  const c = r.content;
   return (
     <>
       <PageHeader title={`Receipt ${r.number}`}
                   crumbs={[...FINANCE_CRUMBS, { label: "Receipts", to: "/parent/finance/receipts" }]}
                   actions={<Button variant="secondary" className="no-print" onClick={() => window.print()}>Print</Button>} />
-      <article className="document receipt" aria-label={`Official receipt ${r.number}`}>
-        {r.is_void ? (
-          <Alert tone="danger" title="This receipt has been voided.">
-            {r.void_reason ? <p>Reason: {r.void_reason}</p> : null}
-          </Alert>
-        ) : null}
-        <header className="receipt-header">
-          <p className="receipt-academy">{c.academy.name}</p>
-          {c.academy.registration_no ? <p className="muted">{c.academy.registration_no}</p> : null}
-          {c.academy.address ? <p className="muted prewrap">{c.academy.address}</p> : null}
-          <p className="muted">{[c.academy.phone, c.academy.email].filter(Boolean).join(" · ")}</p>
-          <h2>Official receipt</h2>
-        </header>
-        <DefinitionList items={[
-          ["Receipt no.", c.number],
-          ["Issued", formatDateTime(c.issued_at)],
-          ["Payment date", formatDateTime(c.payment_date)],
-          ["Payment method", c.payment_method],
-          ["Reference", c.reference],
-          ["Received from", c.payer_reference],
-          ["Students", c.students.join(", ")],
-        ]} />
-        <DataTable
-          caption="Items paid"
-          rows={c.lines.map((line, index) => ({ ...line, key: index }))}
-          rowKey={(line) => line.key}
-          columns={[
-            { key: "invoice", header: "Invoice", render: (l) => l.invoice_number },
-            { key: "student", header: "Student", render: (l) => l.student_name },
-            { key: "desc", header: "Description", render: (l) => l.description },
-            { key: "period", header: "Period", render: (l) => formatPeriod(l.period_start, l.period_end), priority: "secondary" },
-            { key: "paid", header: "Paid", align: "end", render: (l) => <Money value={l.amount_paid} /> },
-          ]}
-        />
-        <dl className="totals">
-          <div className="totals-grand"><dt>Total received</dt><dd><Money value={c.total} /></dd></div>
-        </dl>
-        {c.issued_by ? <p className="muted">Issued by {c.issued_by}</p> : null}
-      </article>
+      <ReceiptDocument receipt={r} />
     </>
   );
 }
