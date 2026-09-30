@@ -54,6 +54,14 @@ Internet ──HTTPS──▶ reverse proxy (TLS, HTTP→HTTPS, static files, re
                    PostgreSQL 16 (application role sr_app; migrations as sr_owner)
 ```
 
+* **Web app:** `cd frontend && npm ci && npm run build`; the proxy serves `frontend/dist/` at
+  `/app/` (assets under `/app/assets/` with a long cache, every other `/app/…` path falls back
+  to `index.html` with `Cache-Control: no-cache`) and sends `/api/`, `/admin/`, `/static/`,
+  `/receipts/` and `/invoices/` to Django. Serve it from the **same host** as the API: the
+  production CSP (`connect-src 'self'`) and the absence of CORS rely on it. Apply the same
+  security headers to `/app/` as Django sends (HSTS, CSP, `X-Content-Type-Options`,
+  `Referrer-Policy`, `frame-ancestors 'none'`). The build has no inline scripts and was
+  checked in a browser under the production CSP. See `docs/FRONTEND.md`.
 * **Static files:** `python manage.py collectstatic`, served by the proxy from `STATIC_ROOT`
   (`staticfiles/`). There are no user uploads.
 * **Migrations:** run as the owner role before the new code starts

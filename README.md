@@ -145,6 +145,20 @@ POST /api/sessions/42/attendance/
 
 Changing a record that already exists requires `"reason": "..."`.
 
+## Web app (frontend)
+
+`frontend/` holds the web app (React + TypeScript + Vite) for staff, coaches, parents and
+students, served under `/app/` and talking only to this API. Phase 6A provides the foundation:
+sign-in, the application shell, role- and capability-aware navigation, route protection,
+the design system and a dashboard from real API data. Portal screens follow in 6B–6J.
+
+```bash
+cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)
+npm test && npm run build                 # tests; production build in frontend/dist/
+```
+
+See `docs/FRONTEND.md` (architecture, auth flow, roles, environment variables, serving).
+
 ## Security and deployment
 
 See `docs/SECURITY.md` (audit, threat model, controls, **production blockers**),
@@ -182,18 +196,20 @@ apps/finance/      class fees, fee plans, charges, family invoices, payments, re
 apps/competitions/ competitions, events, registrations, results
 apps/payroll/      coach rates, adjustments, payroll runs, payslips
 apps/reports/      report builders + JSON/CSV endpoint
-apps/api/          REST API for the Parent and Coach apps
+apps/api/          REST API used by the web app
+frontend/          web app (React + TypeScript + Vite), see docs/FRONTEND.md
 docs/FEES_GUIDE.md step-by-step guide for keying in fees, invoicing and payments
 docs/FINANCE_ARCHITECTURE.md    charges → invoices → payments → receipts, families, locking
 docs/ROLES_AND_PERMISSIONS.md   roles, capability matrix, role changes, migration
 docs/BUSINESS_DECISIONS.md      approved business rules for later phases
+docs/FRONTEND.md                web app architecture, development, build and serving
 docker-compose.yml local PostgreSQL 16
-.github/workflows/ci.yml        PostgreSQL 16 + SQLite test runs, migration round-trip
+.github/workflows/ci.yml        PostgreSQL 16 + SQLite test runs, migration round-trip, web app tests + build
 ```
 
 ## Not included yet
 
-* The Parent App and Coach App front-ends themselves (this repository provides their API).
+* The portal screens of the web app (Phase 6B onwards); Phase 6A provides the foundation.
 * Online payment gateway (FPX/DuitNow) integration: payments are recorded by staff.
 * SST/e-Invoice (LHDN MyInvois) submission.
 * Notifications (WhatsApp/SMS/email reminders for fees or competitions).
