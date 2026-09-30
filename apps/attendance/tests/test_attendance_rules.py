@@ -14,7 +14,7 @@ from apps.academy.models import Enrollment, Student, TrainingClass, TrainingSess
 from apps.academy.services import assign_substitute, revoke_substitute
 from apps.academy.tests.base import AcademyTestCase
 from apps.attendance import services
-from apps.attendance.models import AttendanceRecord, AttendanceStatus
+from apps.attendance.models import AttendanceRecord
 from apps.attendance.services import (
     SessionState,
     coach_edit_deadline,
