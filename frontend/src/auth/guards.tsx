@@ -3,7 +3,7 @@ import { Navigate, Outlet, useLocation } from "react-router";
 
 import { PageHeader } from "../layout/PageHeader";
 import { AccessDeniedState, ErrorState, LoadingState } from "../ui/states";
-import { allowed, type Portal } from "./access";
+import { allowed, can, type Portal } from "./access";
 import { useAuth } from "./AuthProvider";
 
 /** Only signed-in users get past this; others go to /login and come back afterwards. */
@@ -21,13 +21,15 @@ export function RequireAuth() {
  * (the link is also hidden, but hiding links is not the protection; the API
  * refuses the data anyway).
  */
-export function RequireAccess({ portal, capabilities, children }: {
+export function RequireAccess({ portal, capabilities, extraCapabilities = [], children }: {
   portal: Portal;
   capabilities: readonly string[];
+  /** Also needed (any one), e.g. a registration page inside Competitions. */
+  extraCapabilities?: readonly string[];
   children: ReactNode;
 }) {
   const { me } = useAuth();
-  if (!allowed(me, portal, capabilities)) {
+  if (!allowed(me, portal, capabilities) || !can(me, extraCapabilities)) {
     return (
       <>
         <PageHeader title="Access denied" />

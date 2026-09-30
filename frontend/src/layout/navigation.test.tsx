@@ -22,7 +22,7 @@ describe("role-based navigation", () => {
   it("parent sees only the family section", async () => {
     await renderAs(["PARENT"]);
     expect(sectionTitles()).toEqual(["My family"]);
-    expect(within(sidebar()).getByRole("link", { name: "Fees & receipts" })).toBeInTheDocument();
+    expect(within(sidebar()).getByRole("link", { name: "Family finance" })).toBeInTheDocument();
     expect(within(sidebar()).queryByRole("link", { name: "Finance" })).not.toBeInTheDocument();
   });
 
@@ -50,7 +50,7 @@ describe("role-based navigation", () => {
     await renderAs(["COACH", "PARENT"]);
     expect(sectionTitles()).toEqual(["Coaching", "My family"]);
     expect(within(sidebar()).getByRole("link", { name: "Take attendance" })).toBeInTheDocument();
-    expect(within(sidebar()).getByRole("link", { name: "My children" })).toBeInTheDocument();
+    expect(within(sidebar()).getByRole("link", { name: "My family" })).toBeInTheDocument();
   });
 
   it("a super admin gets the staff section only, not parent or coach sections", async () => {
@@ -100,7 +100,7 @@ describe("mobile navigation", () => {
     const drawer = screen.getByRole("dialog", { name: "Menu" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(within(drawer).getByRole("link", { name: "Dashboard" })).toHaveFocus();
-    expect(within(drawer).getByRole("link", { name: "My children" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("link", { name: "My family" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Menu" })).not.toBeInTheDocument();
     expect(toggle).toHaveFocus();
@@ -116,8 +116,8 @@ describe("mobile navigation", () => {
   it("closes after choosing a page", async () => {
     const { user, router } = await renderAs(["PARENT"]);
     await user.click(screen.getByRole("button", { name: "Open menu" }));
-    await user.click(within(screen.getByRole("dialog", { name: "Menu" })).getByRole("link", { name: "Timetable" }));
-    expect(router.state.location.pathname).toBe("/parent/timetable");
+    await user.click(within(screen.getByRole("dialog", { name: "Menu" })).getByRole("link", { name: "Schedule" }));
+    expect(router.state.location.pathname).toBe("/parent/schedule");
     expect(screen.queryByRole("dialog", { name: "Menu" })).not.toBeInTheDocument();
   });
 });

@@ -150,7 +150,9 @@ Changing a record that already exists requires `"reason": "..."`.
 `frontend/` holds the web app (React + TypeScript + Vite) for staff, coaches, parents and
 students, served under `/app/` and talking only to this API. Phase 6A provides the foundation:
 sign-in, the application shell, role- and capability-aware navigation, route protection,
-the design system and a dashboard from real API data. Portal screens follow in 6B–6J.
+the design system and a dashboard from real API data. Phase 6B adds the Parent Portal
+(family overview, children's profiles, schedule, attendance, family finance with invoices,
+payments and printable receipts, competition registration). Other portals follow in 6C–6J.
 
 ```bash
 cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)
@@ -209,7 +211,7 @@ docker-compose.yml local PostgreSQL 16
 
 ## Not included yet
 
-* The portal screens of the web app (Phase 6B onwards); Phase 6A provides the foundation.
+* The staff, coach and student portal screens of the web app (Phase 6C onwards).
 * Online payment gateway (FPX/DuitNow) integration: payments are recorded by staff.
 * SST/e-Invoice (LHDN MyInvois) submission.
 * Notifications (WhatsApp/SMS/email reminders for fees or competitions).

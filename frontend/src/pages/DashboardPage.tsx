@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, Navigate } from "react-router";
 
 import type { Me, TrainingSession } from "../api/types";
 import { useServices } from "../app/services";
-import { can, inPortal } from "../auth/access";
+import { can, inPortal, portalsOf } from "../auth/access";
 import { useMe } from "../auth/AuthProvider";
 import { PayrollStatusBadge } from "../domain/finance";
 import { SessionPhaseBadge } from "../domain/attendance";
@@ -21,6 +21,9 @@ import { EmptyState, ErrorState, LoadingState } from "../ui/states";
  */
 export function DashboardPage() {
   const me = useMe();
+  const portals = portalsOf(me);
+  // A parent-only account goes straight to the Parent Portal overview.
+  if (portals.length === 1 && portals[0] === "parent") return <Navigate to="/parent/dashboard" replace />;
   const staff = inPortal(me, "staff");
   const seesSessions = can(me, ["sessions.view_all", "sessions.view_assigned", "sessions.view_own_children",
                                 "sessions.view_self"]);
@@ -168,7 +171,7 @@ function CoachCard({ me }: { me: Me }) {
 function FamilyCard({ me }: { me: Me }) {
   const children = me.children ?? [];
   return (
-    <Card title="My family">
+    <Card title="My family" actions={<Link to="/parent/dashboard">Parent overview</Link>}>
       {children.length ? (
         <ul className="item-list">
           {children.map((child) => (

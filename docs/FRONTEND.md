@@ -1,14 +1,15 @@
-# Web app (frontend) – Phase 6A foundation
+# Web app (frontend)
 
 The web app in `frontend/` is the user interface for staff, finance, coaches, parents and
 students. It is a single-page app that talks only to the existing Django REST API. **The
 backend is the source of truth for every permission and business rule**: the app decides what
 to *show*, the API decides what is *allowed*.
 
-Phase 6A delivers the foundation only: sign-in, the application shell, navigation, the
-design system, the API client, route protection and a dashboard built from real API data.
-The portal screens are built in later phases (6B–6J); until then each page exists, is
-protected, and says "This page is not available yet" (no invented data).
+Phase 6A delivered the foundation: sign-in, the application shell, navigation, the design
+system, the API client, route protection and a dashboard built from real API data. Phase 6B
+added the **Parent Portal** (see below). The other portals are built in later phases
+(6C–6J); until then each of their pages exists, is protected, and says "This page is not
+available yet" (no invented data).
 
 ## Technology (and why)
 
@@ -242,9 +243,145 @@ build contains no inline scripts, so it works with the production CSP
 (`script-src 'self'; connect-src 'self'`). This was verified in a browser with that policy:
 no violations.
 
+## Parent Portal (Phase 6B)
+
+The Parent Portal is the PARENT role's section of the app. It is read-only except for
+competition registration and withdrawal, the only parent actions the backend offers.
+
+### Routes
+
+All under `/app`, all guarded by `RequireAccess` (PARENT role plus the capability shown). A
+parent-only account is sent from `/dashboard` to `/parent/dashboard`; a user with other roles
+too (e.g. coach and parent) keeps the general dashboard and has the parent section in the menu.
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/parent/dashboard` | Family overview | `students.view_own_children` |
+| `/parent/family` | My family (students of the family) | `students.view_own_children` |
+| `/parent/students` | redirects to `/parent/family` (no duplicate list) | – |
+| `/parent/students/:studentId` | Student profile | `students.view_own_children` |
+| `/parent/schedule` | Week-by-week schedule | `sessions.view_own_children` |
+| `/parent/attendance` | Attendance summary and history | `attendance.view_own_children` |
+| `/parent/finance` | Family finance overview (outstanding invoices, charges) | `finance.view_own_children` |
+| `/parent/finance/invoices` | Invoice list with filters | `finance.view_own_children` |
+| `/parent/finance/invoices/:invoiceId` | Invoice detail (printable) | `finance.view_own_children` |
+| `/parent/finance/payments` | Payment history | `finance.view_own_children` |
+| `/parent/finance/receipts` | Receipts | `finance.view_own_children` |
+| `/parent/finance/receipts/:receiptId` | Receipt as issued (printable) | `finance.view_own_children` |
+| `/parent/competitions` | Competitions and the children's entries | `competition.registrations.view_own_children` or `competition.register_own_children` |
+| `/parent/competitions/:competitionId` | Competition detail, withdraw | as above |
+| `/parent/competitions/:competitionId/register` | Registration | also `competition.register_own_children` |
+
+Routes come from `NAV_ITEMS` (section pages) and `SUB_ROUTES` (detail pages, guarded like
+their section) in `src/nav/navigation.ts`; `src/app/App.tsx` maps them to page components.
+
+### API endpoints used (all existing, all scoped by the backend)
+
+| Feature | Endpoint | Serializer | Capability | Record scope (backend) |
+| --- | --- | --- | --- | --- |
+| Children list | `GET /api/me/` (`children`) | MeView | any signed-in user | guardianships of the parent |
+| Student profile, classes | `GET /api/students/:id/` | `OwnStudentSerializer` | `students.view_own_children` | own children, else 404 |
+| Attendance summary | `GET /api/students/:id/attendance-summary/` | summary | as above | own children, else 404 |
+| Attendance history | `GET /api/attendance/?student=&page=` | `AttendanceRecordSerializer` | `attendance.view_own_children` | own children's records |
+| Family | `GET /api/families/` | `FamilySerializer` | `finance.view_own_children` | families of own children |
+| Schedule | `GET /api/sessions/?start=&end=&page=` | `TrainingSessionSerializer` | `sessions.view_own_children` | sessions of the children's classes |
+| Charges | `GET /api/charges/?student=&page=` | `ChargeSerializer` | `finance.view_own_children` | own children's charges |
+| Invoices | `GET /api/invoices/?outstanding=1|status=&page=`, `GET /api/invoices/:id/` | `InvoiceSerializer` | `finance.view_own_children` | own families, never drafts |
+| Payments | `GET /api/payments/?page=` | `PaymentSerializer` | `finance.view_own_children` | own families |
+| Receipts | `GET /api/receipts/?page=`, `GET /api/receipts/:id/` | `ReceiptSerializer` | `finance.view_own_children` | own families |
+| Competitions | `GET /api/competitions/`, `GET /api/competitions/:id/` | `CompetitionSerializer` | `competition.view` | not drafts |
+| Entries | `GET /api/competition-registrations/?competition=` | `CompetitionRegistrationSerializer` | `competition.registrations.view_own_children` | own children |
+| Register | `POST /api/competition-registrations/` `{student, event, notes}` | same | `competition.register_own_children` | own children only (403 otherwise) |
+| Withdraw | `POST /api/competition-registrations/:id/withdraw/` `{reason}` | same | `competition.register_own_children` | own children only (404 otherwise) |
+
+No new endpoint was needed. Lists use the backend's pagination ("Show more" loads the next
+page); bounded ranges (a week of sessions, a family's payments for an invoice) follow `next`
+up to a fixed number of pages. Query keys start with `"parent"` (`src/parent/queries.ts`);
+student details are cached per child and shared between pages.
+
+### Family and children
+
+One family, several students, one family invoice that can list charges for several children.
+There is no billing contact, "bill to" or parent billing account anywhere. The children come
+from `/api/me/`; the family page shows the family's students from `/api/families/` (a student
+of the family linked only to another guardian is listed by name, without a profile link).
+
+**Switching child:** a native `<select>` ("Viewing") on schedule, attendance, finance charges
+and registration. The choice is kept in the URL (`?student=`) and remembered while moving
+between portal pages (`ParentLayout` context). Only child-specific queries change; family data
+comes from the cache. An id typed into the URL that is not one of the parent's children is
+ignored by the selector and refused by the API (404, shown as "Record not found.").
+
+### Schedule and attendance
+
+* Sessions are shown in academy time with the backend's status (upcoming, in progress,
+  completed, **cancelled**). Each row is labelled with the child(ren) enrolled in that class on
+  that date; sessions of classes none of the children attend (e.g. a class the parent coaches)
+  are not shown in the parent portal.
+* Attendance percentages and counts are the backend's (`attendance-summary`). "Not marked"
+  (UNMARKED) is always shown separately and is never counted as absent or included in the
+  percentage. History lists the recorded marks; parents cannot change attendance (there is no
+  endpoint for it, and no control in the UI). Coach remarks and who recorded a mark are not
+  shown.
+
+### Finance
+
+Read-only. Invoices list each line under its child (per-child subtotals are added exactly in
+integer cents; totals, paid, balance due and refunds are the backend's figures). A void invoice
+shows its reason and nothing due. Payments show what they were applied to and link to the
+receipt. There is no online payment: the pages say payments are made at the academy office and
+recorded by the academy. There is no refund action.
+
+### Receipts
+
+The Django print pages (`/receipts/<id>/`, `/invoices/<id>/`) need a Django session and are not
+used by the app. `GET /api/receipts/:id/` already returns the receipt **exactly as issued**
+(its frozen `content`), scoped to the parent's families (404 otherwise), so the portal renders
+that content as a printable page (`window.print()` with a print stylesheet). No credentials
+other than the parent's own token are used.
+
+### Competition registration flow (the backend's)
+
+1. Choose a child and an event (competitions that are open and allow parent registration).
+2. Confirm in a dialog that states the fee, that an invoice is issued due today, and that fees
+   are generally non-refundable.
+3. `POST /api/competition-registrations/`: the backend checks ownership, eligibility (age,
+   gender), duplicates, capacity and the per-child event limit, creates the entry as
+   **PENDING ("Awaiting payment")** and issues a competition invoice. Its error messages are
+   shown as returned; the app has no eligibility logic of its own.
+4. The page shows the status and the invoice. The academy records the payment; the entry then
+   becomes **CONFIRMED** automatically. The app never shows a payment as made.
+5. Withdrawal (while registration is open): unpaid, the invoice is voided; paid, nothing is
+   refunded (the dialog says so). Exceptional refunds are staff-only.
+
+Statuses shown are the backend's enums: PENDING, CONFIRMED, WITHDRAWN, REJECTED, with the
+charge status (UNPAID, PARTIAL, PAID, WAIVED, CANCELLED) as payment status.
+
+### Security model
+
+* Every record comes from an endpoint the backend scopes to the parent's own children or
+  families; ids in URLs are only passed to the API, never trusted. Another family's records
+  are 404 ("Record not found.").
+* **Backend change in 6B:** staff-only `notes` on charges, invoices, payments and families
+  were returned to parents (they are internal notes, not printed on invoices or receipts).
+  They are now left out for users without `finance.view_all` (families: without
+  `students.view_all` or `finance.view_all`); staff still see them. Tested in
+  `apps/api/tests/test_parent_portal.py`.
+* The IC number is shown masked (last 4 characters); medical notes are shown on the child's
+  profile because the backend returns them to that child's own parents only.
+* The parent's own contact details come from `/api/me/`; their IC number is never displayed.
+* Backend tests (`test_parent_portal.py`, 17 tests): Family A with three children and one
+  family invoice, Family B with two; Parent A reaches all of Family A's students, family,
+  attendance, invoices, charges, payments, receipts and entries, and gets 404 for every Family
+  B record and nothing from swapped filter ids; no attendance, refund or confirm action; no
+  registering or withdrawing another family's child; no self-made guardianship; staff notes
+  hidden from parents and visible to staff; the register → pay → CONFIRMED → withdraw (no
+  refund) flow; eligibility and duplicate errors; drafts hidden.
+
 ## Tests
 
-`npm test` runs 61 tests (Vitest, jsdom) covering: the API client (headers, token, 204, 401,
+`npm test` runs 92 tests: the Phase 6A suite (61) and the Parent Portal suite (31,
+`src/parent/test/`). The Phase 6A suite (Vitest, jsdom) covers: the API client (headers, token, 204, 401,
 403, 404, 400 field errors, 429, 5xx without leaks, network failure, timeout); login
 (validation, success, generic failure, throttle, connection failure, redirect back to the
 requested page); logout (server revocation and offline sign-out); expired or revoked session
@@ -256,14 +393,38 @@ error association; money, date, percentage and status formatting; attendance sum
 unmarked students; and the dashboard (widgets per capability, requests never sent for widgets
 the user cannot use, sorting, errors without leaks).
 
+The Parent Portal suite uses a Family A fixture (three children, one family invoice) and
+covers: the family overview (children, next session, attendance with "not marked", finance
+and competition summaries, only supported quick actions, no children); the family page; the
+student profile (masked IC, medical notes, switching child, another family's child = not
+found); the schedule (child labels, cancellations, other classes left out, filter by child,
+week navigation); attendance (backend percentage, UNMARKED separate, no edit controls,
+switching child refetches only that child); finance (outstanding invoices, charges per child,
+invoice filters sent to the API, invoice lines per child with exact totals, payments applied,
+printing, void invoices, payments without staff notes, receipt as issued, not found for other
+families); competitions (open/other, entries with payment status, closed competition,
+withdrawal warning and backend call, registration validation → confirmation → "Awaiting
+payment" with the issued invoice and no fake payment, backend eligibility errors); and
+authorization and errors (registration page needs the register capability, non-parents are
+denied, API 403, network failure with retry, `/parent/students` redirect, phone menu).
+
 Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoints get 404.
 
-## Known limitations (Phase 6A)
+## Known limitations
 
-* Portal pages are placeholders until their phase (6B–6J). Notifications and recent activity
-  are marked "not available yet": the backend has no endpoints for them.
-* The printable receipt and invoice pages (`/receipts/<id>/`, `/invoices/<id>/`) are Django
-  pages that need a Django admin session, not an API token. The finance UI (6F) needs either an
-  API endpoint for the printable document or a sign-in bridge.
+* Staff, coach and student portal pages are placeholders until their phase (6C–6J).
+  Notifications and recent activity are marked "not available yet": the backend has no
+  endpoints for them.
+* The Django print pages (`/receipts/<id>/`, `/invoices/<id>/`) need a Django session. The
+  Parent Portal prints receipts and invoices from the API data instead; staff printing is
+  handled with the finance UI (6F).
+* Parent Portal API gaps (documented, not worked around):
+  * attendance history lists recorded marks only; sessions not yet marked are counted in the
+    summary ("Not marked") but the API has no per-session list of them for parents;
+  * there is no online payment gateway: parents see what is due and pay at the academy;
+  * the withdraw response carries the charge status from before the withdrawal; the portal
+    refetches afterwards, so the page is correct;
+  * attendance `remarks` and `recorded_by_name` are returned to parents by the API but not
+    displayed; session `notes` are returned and not displayed.
 * The token is readable by JavaScript (sessionStorage); see "Where the token is kept".
 * The dashboard's upcoming sessions show today and tomorrow, first page (50) of each day.

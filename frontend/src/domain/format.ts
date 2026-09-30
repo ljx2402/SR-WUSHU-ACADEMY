@@ -60,3 +60,65 @@ export function formatDateTime(iso: string | null | undefined): string {
                                             minute: "2-digit", hour12: false, timeZone: ACADEMY_TIME_ZONE })
     .format(date);
 }
+
+/** Decimal strings → integer cents (BigInt), so sums never touch floating point. */
+function toCents(value: string): bigint | null {
+  const match = DECIMAL.exec(value.trim());
+  if (!match) return null;
+  const [, sign, whole, fraction = ""] = match;
+  const cents = BigInt(whole) * 100n + BigInt((fraction + "00").slice(0, 2));
+  return sign ? -cents : cents;
+}
+
+/** Adds decimal money strings exactly: ["220.00", "280.00", "50.00"] → "550.00". */
+export function sumMoney(values: string[]): string {
+  let total = 0n;
+  for (const value of values) {
+    const cents = toCents(value);
+    if (cents === null) return "";
+    total += cents;
+  }
+  const negative = total < 0n;
+  const abs = negative ? -total : total;
+  return `${negative ? "-" : ""}${abs / 100n}.${String(abs % 100n).padStart(2, "0")}`;
+}
+
+/** True if a decimal money string is greater than zero. */
+export function isPositiveMoney(value: string | null | undefined): boolean {
+  const cents = value ? toCents(value) : null;
+  return cents !== null && cents > 0n;
+}
+
+/** Shows only the last 4 characters of an identity number ("•••••••1234"). */
+export function maskIdentifier(value: string | null | undefined): string {
+  if (!value) return "—";
+  const visible = value.slice(-4);
+  return `${"•".repeat(Math.max(value.length - 4, 4))}${visible}`;
+}
+
+/** Monday of the week containing the date (YYYY-MM-DD, calendar arithmetic only). */
+export function weekStart(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
+  return addDays(isoDate, weekday === 0 ? -6 : 1 - weekday);
+}
+
+/** "2026-10-01" → "Thursday". */
+export function weekdayName(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-MY", { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+/** "2026-10-01"–"2026-10-31" → "1 Oct 2026 – 31 Oct 2026"; either may be missing. */
+export function formatPeriod(start: string | null | undefined, end: string | null | undefined): string {
+  const short = (iso: string) => formatDate(iso).replace(/^[A-Za-z]+, /, "");
+  if (start && end) return start === end ? short(start) : `${short(start)} – ${short(end)}`;
+  return start ? short(start) : end ? short(end) : "—";
+}
+
+/** "2026-10-01" → "Thu 1 Oct" (compact, for tables). */
+export function formatShortDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
+    .format(new Date(Date.UTC(y, m - 1, d))).replace(",", "");
+}

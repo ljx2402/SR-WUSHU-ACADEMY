@@ -56,22 +56,25 @@ export const NAV_ITEMS: readonly NavItem[] = [
     capabilities: ["payroll.view_own"], phase: "6I",
     description: "Your finalized payslips." },
 
-  // Parent (PARENT)
-  { id: "parent-children", portal: "parent", label: "My children", path: "/parent/children",
+  // Parent (PARENT): the Parent Portal (Phase 6B)
+  { id: "parent-overview", portal: "parent", label: "Overview", path: "/parent/dashboard",
     capabilities: ["students.view_own_children"], phase: "6B",
-    description: "Your children's details and classes." },
-  { id: "parent-timetable", portal: "parent", label: "Timetable", path: "/parent/timetable",
+    description: "Your family at a glance." },
+  { id: "parent-family", portal: "parent", label: "My family", path: "/parent/family",
+    capabilities: ["students.view_own_children"], phase: "6B",
+    description: "Your family's students and their profiles." },
+  { id: "parent-schedule", portal: "parent", label: "Schedule", path: "/parent/schedule",
     capabilities: ["sessions.view_own_children"], phase: "6B",
-    description: "Upcoming sessions for your children." },
+    description: "Training sessions for your children." },
   { id: "parent-attendance", portal: "parent", label: "Attendance", path: "/parent/attendance",
     capabilities: ["attendance.view_own_children"], phase: "6B",
     description: "Your children's attendance." },
-  { id: "parent-fees", portal: "parent", label: "Fees & receipts", path: "/parent/fees",
+  { id: "parent-finance", portal: "parent", label: "Family finance", path: "/parent/finance",
     capabilities: ["finance.view_own_children"], phase: "6B",
-    description: "Your family's invoices, payments and receipts." },
+    description: "Your family's charges, invoices, payments and receipts." },
   { id: "parent-competitions", portal: "parent", label: "Competitions", path: "/parent/competitions",
     capabilities: ["competition.registrations.view_own_children", "competition.register_own_children"], phase: "6B",
-    description: "Competition entries and registration for your children." },
+    description: "Competitions and your children's entries." },
 
   // Student (STUDENT)
   { id: "student-profile", portal: "student", label: "My profile", path: "/student/profile",
@@ -83,6 +86,28 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { id: "student-competitions", portal: "student", label: "Competitions", path: "/student/competitions",
     capabilities: ["competition.registrations.view_self"], phase: "6D",
     description: "Your competition entries and results." },
+];
+
+/**
+ * Pages inside a section (details, sub-pages). Each is guarded exactly like the
+ * section item it belongs to (`parent`), plus its own capabilities if given.
+ */
+export interface SubRoute {
+  path: string;
+  parent: string; // NavItem id
+  capabilities?: readonly string[];
+}
+
+export const SUB_ROUTES: readonly SubRoute[] = [
+  { path: "/parent/students/:studentId", parent: "parent-family" },
+  { path: "/parent/finance/invoices", parent: "parent-finance" },
+  { path: "/parent/finance/invoices/:invoiceId", parent: "parent-finance" },
+  { path: "/parent/finance/payments", parent: "parent-finance" },
+  { path: "/parent/finance/receipts", parent: "parent-finance" },
+  { path: "/parent/finance/receipts/:receiptId", parent: "parent-finance" },
+  { path: "/parent/competitions/:competitionId", parent: "parent-competitions" },
+  { path: "/parent/competitions/:competitionId/register", parent: "parent-competitions",
+    capabilities: ["competition.register_own_children"] },
 ];
 
 export const PORTAL_ORDER: readonly Portal[] = ["staff", "coach", "parent", "student"];

@@ -23,6 +23,22 @@ from apps.audit.masking import mask_identifier
 from apps.payroll.models import PayrollRun, Payslip, PayslipLine
 
 
+class HideStaffNotesMixin:
+    """``notes`` on finance and family records are internal staff notes (they are
+    not printed on invoices or receipts). They are left out of the response for
+    anyone who cannot see every record of that kind, e.g. parents."""
+
+    STAFF_NOTE_CAPABILITIES = (Cap.FINANCE_VIEW_ALL,)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and not can(user, self.STAFF_NOTE_CAPABILITIES):
+            data.pop("notes", None)
+        return data
+
+
 class ParentSerializer(serializers.ModelSerializer):
     """Parent record. The IC / passport number is shown in full only to people who
     manage parent records (and to the parent themselves); others (e.g. finance,
@@ -262,7 +278,7 @@ class AuditLogSerializer(serializers.ModelSerializer):
         return (obj.actor.get_full_name() or obj.actor.username) if obj.actor else None
 
 
-class ChargeSerializer(serializers.ModelSerializer):
+class ChargeSerializer(HideStaffNotesMixin, serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.full_name", read_only=True)
     amount_paid = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     balance = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
@@ -291,7 +307,9 @@ class ChargeCreateSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
-class FamilySerializer(serializers.ModelSerializer):
+class FamilySerializer(HideStaffNotesMixin, serializers.ModelSerializer):
+    STAFF_NOTE_CAPABILITIES = (Cap.STUDENTS_VIEW_ALL, Cap.FINANCE_VIEW_ALL)
+
     students = serializers.SerializerMethodField()
 
     class Meta:
@@ -310,7 +328,7 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
                   "period_end", "quantity", "unit_amount", "discount", "amount", "amount_paid", "is_active"]
 
 
-class InvoiceSerializer(serializers.ModelSerializer):
+class InvoiceSerializer(HideStaffNotesMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
 
     class Meta:
@@ -342,7 +360,7 @@ class AllocationSerializer(serializers.ModelSerializer):
         fields = ["id", "invoice", "invoice_number", "invoice_item", "student", "student_name", "description", "amount"]
 
 
-class PaymentSerializer(serializers.ModelSerializer):
+class PaymentSerializer(HideStaffNotesMixin, serializers.ModelSerializer):
     allocations = AllocationSerializer(many=True, read_only=True)
     receipt_id = serializers.IntegerField(source="receipt.id", read_only=True, default=None)
     receipt_number = serializers.CharField(source="receipt.number", read_only=True, default=None)

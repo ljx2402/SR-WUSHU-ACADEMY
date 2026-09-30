@@ -85,3 +85,22 @@ export function FamilyContext({ familyName, students }: { familyName: string; st
     </div>
   );
 }
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: "Cash",
+  BANK_TRANSFER: "Bank transfer",
+  DUITNOW: "DuitNow / QR",
+  FPX: "FPX online banking",
+  CARD: "Debit / credit card",
+  CHEQUE: "Cheque",
+  EWALLET: "E-wallet",
+};
+
+export const FEE_TYPE_LABELS: Record<string, string> = {
+  TUITION: "Class fee",
+  REGISTRATION: "Registration fee",
+  UNIFORM: "Uniform",
+  WEAPON: "Weapon",
+  COMPETITION: "Competition fee",
+  OTHER: "Other",
+};

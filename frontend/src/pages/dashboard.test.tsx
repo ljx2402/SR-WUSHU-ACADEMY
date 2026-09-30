@@ -58,10 +58,10 @@ describe("dashboard", () => {
     expect(screen.getByText("Junior Taolu")).toBeInTheDocument();
   });
 
-  it("shows a parent's children (one family, several students)", async () => {
+  it("shows a coach-and-parent's children (one family, several students)", async () => {
     renderApp({
       routes: {
-        "GET /api/me/": json(makeMe(["PARENT"], { children: [
+        "GET /api/me/": json(makeMe(["COACH", "PARENT"], { children: [
           { id: 1, student_no: "S0001", full_name: "Lina" }, { id: 2, student_no: "S0002", full_name: "Adam" },
         ] })),
       },
@@ -76,7 +76,7 @@ describe("dashboard", () => {
   it("a failing widget shows the standard error, not the response", async () => {
     renderApp({
       routes: {
-        "GET /api/me/": json(makeMe(["PARENT"])),
+        "GET /api/me/": json(makeMe(["COACH", "PARENT"])),
         "GET /api/sessions/": () => new Response("<h1>Server Error (500)</h1>", { status: 500 }),
       },
     });

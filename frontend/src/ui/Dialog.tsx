@@ -76,16 +76,19 @@ export function Dialog({ open, title, onClose, children, footer, describedBy }: 
 /**
  * Confirmation for sensitive actions (voids, refunds, corrections, revocations).
  * With `requireReason`, the action stays disabled until a reason is typed; the
- * backend requires and audits the reason too.
+ * backend requires and audits the reason too. `askReason` offers the same box
+ * as optional.
  */
 export function ConfirmDialog({ open, title, message, confirmLabel, tone = "danger", requireReason = false,
-                               reasonLabel = "Reason", busy = false, error, onConfirm, onCancel }: {
+                               askReason = false, reasonLabel = "Reason", busy = false, error, onConfirm,
+                               onCancel }: {
   open: boolean;
   title: string;
   message: ReactNode;
   confirmLabel: string;
   tone?: "danger" | "primary";
   requireReason?: boolean;
+  askReason?: boolean;
   reasonLabel?: string;
   busy?: boolean;
   error?: string | null;
@@ -114,9 +117,10 @@ export function ConfirmDialog({ open, title, message, confirmLabel, tone = "dang
       }
     >
       <div id={messageId}>{message}</div>
-      {requireReason ? (
-        <TextAreaField label={reasonLabel} required value={reason} rows={3}
-                       hint="Required. It is stored in the audit log." onChange={(e) => setReason(e.target.value)} />
+      {requireReason || askReason ? (
+        <TextAreaField label={reasonLabel} required={requireReason} value={reason} rows={3}
+                       hint={requireReason ? "Required. It is stored in the audit log." : "Stored with the change."}
+                       onChange={(e) => setReason(e.target.value)} />
       ) : null}
       {error ? <p className="field-error" role="alert">{error}</p> : null}
     </Dialog>

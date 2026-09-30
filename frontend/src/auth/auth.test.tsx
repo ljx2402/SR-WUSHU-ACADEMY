@@ -32,8 +32,9 @@ describe("login", () => {
     await user.type(await screen.findByLabelText(/Username/), "aisha");
     await user.type(screen.getByLabelText(/Password/), "right");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/dashboard");
+    // A parent-only account lands on the Parent Portal overview.
+    expect(await screen.findByRole("heading", { name: "Family overview" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/parent/dashboard");
     expect(tokens.value).toBe("fresh-token");
     expect(screen.getByText(/Welcome, Aisha Rahman/)).toBeInTheDocument();
     // The sign-in request itself never carries an old token.
@@ -83,15 +84,15 @@ describe("login", () => {
 
   it("a signed-in user visiting /login goes to the dashboard", async () => {
     const { router } = renderApp({ route: "/login", routes: { "GET /api/me/": json(parent) } });
-    await screen.findByRole("heading", { name: "Dashboard" });
-    expect(router.state.location.pathname).toBe("/dashboard");
+    await screen.findByRole("heading", { name: "Family overview" });
+    expect(router.state.location.pathname).toBe("/parent/dashboard");
   });
 });
 
 describe("protected routes", () => {
   it("send signed-out users to /login and back to the page after signing in", async () => {
     const { user, router } = renderApp({
-      route: "/parent/fees",
+      route: "/parent/finance",
       token: null,
       routes: { "POST /api/auth/token/": json({ token: "t2" }), "GET /api/me/": json(parent) },
     });
@@ -100,8 +101,8 @@ describe("protected routes", () => {
     await user.type(screen.getByLabelText(/Username/), "aisha");
     await user.type(screen.getByLabelText(/Password/), "pw");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("heading", { name: "Fees & receipts" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/parent/fees");
+    expect(await screen.findByRole("heading", { name: "Family finance", level: 1 })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/parent/finance");
   });
 });
 
@@ -171,6 +172,6 @@ describe("expired or revoked session", () => {
     expect(within(alert).getByText("Unable to connect. Please try again.")).toBeInTheDocument();
     expect(tokens.value).toBe("tok-123");
     await user.click(within(alert).getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Family overview" })).toBeInTheDocument());
   });
 });
