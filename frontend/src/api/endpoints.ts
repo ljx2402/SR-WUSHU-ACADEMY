@@ -77,7 +77,8 @@ export function endpoints(api: ApiClient) {
     registrations: (query: { competition?: number; page?: number }, signal?: AbortSignal) =>
       api.get<Paginated<CompetitionRegistration>>("/api/competition-registrations/", query, signal),
     /** Creates a PENDING registration and an issued competition invoice (paid at the academy). */
-    register: (body: { student: number; event: number; notes?: string }) =>
+    register: (body: { student: number; event: number; competition?: number; notes?: string;
+                       responses?: Record<string, unknown> }) =>
       api.post<CompetitionRegistration>("/api/competition-registrations/", body),
     /** The academy's bank details, QR code and instructions. */
     paymentInfo: (signal?: AbortSignal) => api.get<AcademyPaymentInfo>("/api/payment-info/", undefined, signal),

@@ -278,6 +278,39 @@ export interface CompetitionEvent {
   max_entries: number | null;
 }
 
+export type FormFieldType =
+  | "TEXT" | "LONG_TEXT" | "NUMBER" | "DATE" | "SINGLE_SELECT" | "MULTI_SELECT" | "YES_NO" | "EMAIL" | "PHONE";
+
+/** One custom question of a competition's PUBLISHED registration form. */
+export interface FormFieldDefinition {
+  key: string;
+  label: string;
+  type: FormFieldType;
+  required: boolean;
+  help_text: string;
+  placeholder: string;
+  options: string[];
+  max_length: number | null;
+  min_value: string | null;
+  max_value: string | null;
+}
+
+export interface RegistrationFormInfo {
+  status: "DRAFT" | "PUBLISHED";
+  version: number;
+  published_at: string | null;
+  fields: FormFieldDefinition[];
+}
+
+/** An answer as stored with the registration (label and type frozen at submission). */
+export interface FormAnswer {
+  key: string;
+  label: string;
+  type: FormFieldType;
+  value: string | number | boolean | string[] | null;
+  display: string;
+}
+
 /** GET /api/competitions/ (drafts are never returned to parents). */
 export interface Competition {
   id: number;
@@ -289,11 +322,14 @@ export interface Competition {
   registration_deadline: string;
   status: "OPEN" | "CLOSED" | "COMPLETED" | "CANCELLED" | "DRAFT";
   allow_parent_registration: boolean;
+  allow_parent_withdrawal: boolean;
   max_events_per_student: number | null;
   age_reference_date: string | null;
   description: string;
+  rules: string;
   is_open: boolean;
   events: CompetitionEvent[];
+  registration_form: RegistrationFormInfo;
 }
 
 /** GET /api/competition-registrations/ */
@@ -312,6 +348,9 @@ export interface CompetitionRegistration {
   fee_status: Charge["status"] | null;
   invoice: { id: number; number: string; balance_due: string } | null;
   result: { placing: number | null; medal: string; score: string | null; remarks: string } | null;
+  form_version: number | null;
+  /** The family's own answers (not returned to coaches). */
+  form_responses?: FormAnswer[];
 }
 
 /* ------------------------------------------------------------------ payment proofs */

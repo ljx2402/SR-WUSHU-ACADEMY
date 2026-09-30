@@ -281,13 +281,16 @@ describe("competitions", () => {
     expect(screen.getByText("Choose an event.")).toBeInTheDocument();
     expect(posted).toBeNull();
     await user.click(screen.getByRole("radio", { name: /Changquan U12/ }));
+    await user.selectOptions(screen.getByLabelText(/T-shirt size/), "L");
+    await user.click(within(screen.getByRole("group", { name: /Accommodation/ })).getByRole("radio", { name: "No" }));
     await user.click(screen.getByRole("button", { name: "Review and register" }));
     const dialog = screen.getByRole("dialog", { name: "Confirm registration" });
     expect(dialog).toHaveTextContent("Register Aaron Tan for Changquan U12");
     expect(dialog).toHaveTextContent("RM 50.00");
     await user.click(within(dialog).getByRole("button", { name: "Register" }));
     expect(await screen.findByRole("heading", { name: "Registration received" })).toBeInTheDocument();
-    expect(posted).toEqual({ student: 11, event: 811, notes: "" });
+    expect(posted).toEqual({ student: 11, event: 811, competition: 81, notes: "",
+                             responses: { shirt_size: "L", accommodation: false } });
     expect(screen.getByText("Awaiting payment")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "INV-2026-0031" })).toHaveAttribute("href", "/parent/finance/invoices/306");
     expect(screen.getByText(/does not take payments itself/)).toBeInTheDocument();
@@ -300,6 +303,8 @@ describe("competitions", () => {
       "POST /api/competition-registrations/": json({ detail: ["Nanquan Girls is for female athletes only."] }, 400),
     }) });
     await user.click(await screen.findByRole("radio", { name: /Nanquan Girls/ }));
+    await user.selectOptions(screen.getByLabelText(/T-shirt size/), "M");
+    await user.click(within(screen.getByRole("group", { name: /Accommodation/ })).getByRole("radio", { name: "Yes" }));
     await user.click(screen.getByRole("button", { name: "Review and register" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Register" }));
     expect(await screen.findByText("Nanquan Girls is for female athletes only.")).toBeInTheDocument();

@@ -95,3 +95,16 @@
   .payment-info { grid-template-columns: 1fr; }
   .payment-qr img { margin: 0 auto; }
 }
+
+/* Competition registration form (questions come from the competition's published form) */
+.form-questions { border-top: 1px solid var(--color-border); padding-top: var(--space-4); margin-top: var(--space-2); }
+.form-questions h2 { font-size: var(--text-md); }
+.dynamic-form select { min-height: var(--tap-target); width: 100%; padding: 0 var(--space-3); font: inherit; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); }
+.fee-line { font-size: var(--text-lg); }
+.answer-list { display: grid; gap: var(--space-2); margin: var(--space-2) 0; }
+.answer-list div { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: var(--space-3); }
+.answer-list dt { color: var(--color-muted); }
+.answer-list dd { margin: 0; overflow-wrap: anywhere; }
+.answers summary, .rules summary { cursor: pointer; min-height: var(--tap-target); display: flex; align-items: center; color: var(--color-info); }
+.register-competition { max-width: 40rem; }
+@media (max-width: 640px) { .answer-list div { grid-template-columns: 1fr; gap: 0; } }

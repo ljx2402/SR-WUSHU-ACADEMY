@@ -33,6 +33,24 @@ class Competition(AuditedModel):
         null=True, blank=True, help_text="Date used to calculate age for age groups (defaults to the start date)."
     )
     description = models.TextField(blank=True)
+    rules = models.TextField(blank=True, help_text="Competition rules shown to parents (e.g. categories, equipment).")
+    allow_parent_withdrawal = models.BooleanField(
+        default=True, help_text="Parents may withdraw their own entries while registration is open. Refunds are "
+                                "never automatic; exceptional refunds are a finance action.")
+
+    # Registration form (see apps.competitions.registration_forms). Staff edit the
+    # working copy (RegistrationFormField rows); publishing freezes it into
+    # ``published_form`` with a new version. Parents only ever see and submit the
+    # published version; registrations keep a snapshot of what they answered.
+    class FormStatus(models.TextChoices):
+        DRAFT = "DRAFT", "Draft (parents cannot register)"
+        PUBLISHED = "PUBLISHED", "Published"
+
+    form_status = models.CharField(max_length=10, choices=FormStatus.choices, default=FormStatus.PUBLISHED,
+                                   editable=False)
+    form_version = models.PositiveIntegerField(default=1, editable=False)
+    form_published_at = models.DateTimeField(null=True, blank=True, editable=False)
+    published_form = models.JSONField(default=list, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -134,6 +152,9 @@ class CompetitionRegistration(AuditedModel):
         "finance.Charge", null=True, blank=True, on_delete=models.PROTECT, related_name="competition_registration"
     )
     notes = models.CharField(max_length=255, blank=True)
+    # What was asked and answered, frozen at registration: [{key, label, type, value, display}].
+    form_version = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    form_responses = models.JSONField(default=list, blank=True, editable=False)
 
     class Meta:
         ordering = ["event", "student__full_name"]
@@ -148,8 +169,65 @@ class CompetitionRegistration(AuditedModel):
     def __str__(self):
         return f"{self.student.full_name} – {self.event}"
 
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            previous = CompetitionRegistration.objects.filter(pk=self.pk).values(
+                "form_responses", "form_version").first()
+            if previous and (previous["form_responses"] != self.form_responses
+                             or previous["form_version"] != self.form_version):
+                raise PermissionDenied("Submitted registration form answers cannot be changed.")
+        super().save(*args, **kwargs)
+
     def delete(self, *args, **kwargs):
         raise PermissionDenied("Competition registrations cannot be deleted; withdraw or reject them instead.")
+
+
+class RegistrationFormField(AuditedModel):
+    """One custom question in a competition's registration form (working copy).
+
+    System fields (student, event, fee, status, payment, invoice, dates) are
+    not form fields and cannot be defined here. Editing these rows never
+    changes the published form or past answers: publishing freezes a copy.
+    """
+
+    audit_category = AuditCategory.COMPETITION
+
+    class FieldType(models.TextChoices):
+        TEXT = "TEXT", "Short text"
+        LONG_TEXT = "LONG_TEXT", "Long text"
+        NUMBER = "NUMBER", "Number"
+        DATE = "DATE", "Date"
+        SINGLE_SELECT = "SINGLE_SELECT", "Single choice"
+        MULTI_SELECT = "MULTI_SELECT", "Multiple choice"
+        YES_NO = "YES_NO", "Yes / No"
+        EMAIL = "EMAIL", "Email"
+        PHONE = "PHONE", "Phone"
+
+    competition = models.ForeignKey(Competition, on_delete=models.CASCADE, related_name="form_fields")
+    key = models.CharField(max_length=40, help_text="Stable identifier, e.g. shirt_size (lowercase, digits, _).")
+    label = models.CharField(max_length=120)
+    field_type = models.CharField(max_length=15, choices=FieldType.choices)
+    required = models.BooleanField(default=False)
+    help_text = models.CharField(max_length=255, blank=True)
+    placeholder = models.CharField(max_length=100, blank=True)
+    options = models.JSONField(default=list, blank=True, help_text="Choices for single / multiple choice fields.")
+    max_length = models.PositiveIntegerField(null=True, blank=True, help_text="Text fields only.")
+    min_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    max_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["competition", "order", "id"]
+        constraints = [models.UniqueConstraint(fields=["competition", "key"], name="unique_form_field_key")]
+
+    def __str__(self):
+        return f"{self.competition.name}: {self.label}"
+
+    def clean(self):
+        from .registration_forms import validate_field_definition
+
+        validate_field_definition(self)
 
 
 class ResultQuerySet(models.QuerySet):

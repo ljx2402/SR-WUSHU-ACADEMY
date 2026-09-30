@@ -8,11 +8,12 @@ from apps.audit.context import audit_context
 from apps.finance import services as finance_services
 from apps.finance.models import Charge, FeeType
 
-from .models import CompetitionRegistration, CompetitionResult
+from . import registration_forms
+from .models import Competition, CompetitionRegistration, CompetitionResult
 
 
 @transaction.atomic
-def register(student, event, actor, notes=""):
+def register(student, event, actor, notes="", responses=None):
     """Register a student for a competition event.
 
     Parents may only register their own children, and only while the
@@ -20,6 +21,12 @@ def register(student, event, actor, notes=""):
     and an issued competition invoice (due today) are created, and the
     registration stays PENDING (awaiting payment) until that invoice is paid,
     when it becomes CONFIRMED automatically. A free event is confirmed at once.
+
+    ``responses`` are the answers to the competition's PUBLISHED registration
+    form, validated against it and stored with the form version (see
+    ``registration_forms``). Parents can only register while the form is
+    published and must answer its required questions; staff registering on a
+    family's behalf may leave questions they cannot answer empty.
     """
     competition = event.competition
     is_manager = can(actor, Cap.COMPETITION_REGISTRATIONS_MANAGE)
@@ -30,6 +37,9 @@ def register(student, event, actor, notes=""):
             raise PermissionDenied("Registration for this competition is handled by the academy.")
         if not competition.is_open_for_registration():
             raise ValidationError("Registration for this competition is closed.")
+        if competition.form_status != Competition.FormStatus.PUBLISHED:
+            raise ValidationError("The registration form for this competition is not available yet.")
+    answers = registration_forms.validate_responses(competition, responses, enforce_required=not is_manager)
     errors = event.eligibility_errors(student)
     if errors:
         raise ValidationError(errors)
@@ -59,6 +69,8 @@ def register(student, event, actor, notes=""):
             registered_by=actor,
             charge=charge,
             notes=notes,
+            form_version=competition.form_version,
+            form_responses=answers,
         )
 
 
@@ -71,6 +83,9 @@ def withdraw(registration, actor, reason="", status=CompetitionRegistration.Stat
         status = CompetitionRegistration.Status.WITHDRAWN
         if not can(actor, Cap.COMPETITION_REGISTER_OWN_CHILDREN) or not access.is_parent_of(actor, registration.student):
             raise PermissionDenied("You can only withdraw your own children.")
+        if not competition.allow_parent_withdrawal:
+            raise PermissionDenied("Withdrawal from this competition is handled by the academy; please contact "
+                                   "the academy.")
         if not competition.is_open_for_registration():
             raise ValidationError("The registration deadline has passed; please contact the academy.")
     if registration.status in CompetitionRegistration.INACTIVE:

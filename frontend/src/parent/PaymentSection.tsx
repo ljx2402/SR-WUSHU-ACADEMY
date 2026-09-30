@@ -31,7 +31,7 @@ export const paymentKeys = {
   proofs: (invoice: number) => ["parent", "payment-proofs", invoice] as const,
 };
 
-export function PaymentInformation({ invoice }: { invoice: Invoice }) {
+export function PaymentInformation({ invoice, uploadHere = true }: { invoice: Invoice; uploadHere?: boolean }) {
   const { endpoints } = useServices();
   const info = useQuery({
     queryKey: paymentKeys.info,
@@ -85,8 +85,8 @@ export function PaymentInformation({ invoice }: { invoice: Invoice }) {
           </div>
         )
       )}
-      <p className="muted">After paying, upload your proof of payment below. The academy checks it, records the
-        payment and then issues the official receipt.</p>
+      <p className="muted">After paying, upload your proof of payment {uploadHere ? "below" : "on the invoice"}. The
+        academy checks it, records the payment and then issues the official receipt.</p>
     </Section>
   );
 }

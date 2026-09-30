@@ -154,8 +154,21 @@ export const receipt: Receipt = {
 export const openCompetition: Competition = {
   id: 81, name: "State Wushu Open", organiser: "State Wushu Association", venue: "Stadium Juara",
   start_date: addDays(today, 30), end_date: addDays(today, 31), registration_deadline: addDays(today, 10),
-  status: "OPEN", allow_parent_registration: true, max_events_per_student: 2, age_reference_date: null,
-  description: "Annual state championship.", is_open: true,
+  status: "OPEN", allow_parent_registration: true, allow_parent_withdrawal: true, max_events_per_student: 2,
+  age_reference_date: null, description: "Annual state championship.",
+  rules: "Athletes must bring their own weapons. Uniform inspection at check-in.", is_open: true,
+  registration_form: {
+    status: "PUBLISHED", version: 2, published_at: "2026-09-01T10:00:00+08:00",
+    fields: [
+      { key: "shirt_size", label: "T-shirt size", type: "SINGLE_SELECT", required: true, help_text: "Event T-shirt.",
+        placeholder: "", options: ["S", "M", "L", "XL"], max_length: null, min_value: null, max_value: null },
+      { key: "accommodation", label: "Accommodation", type: "YES_NO", required: true, help_text: "", placeholder: "",
+        options: [], max_length: null, min_value: null, max_value: null },
+      { key: "remarks", label: "Special remarks", type: "LONG_TEXT", required: false, help_text: "",
+        placeholder: "Anything the team manager should know", options: [], max_length: 300, min_value: null,
+        max_value: null },
+    ],
+  },
   events: [
     { id: 811, competition: 81, event_type: "CHANGQUAN", name: "Changquan U12", gender: "OPEN", min_age: null,
       max_age: 12, weight_class: "", fee: "50.00", max_entries: null },
@@ -166,17 +179,20 @@ export const openCompetition: Competition = {
 
 export const closedCompetition: Competition = {
   ...openCompetition, id: 82, name: "National Junior Cup", status: "CLOSED", is_open: false,
-  registration_deadline: addDays(today, -5), events: [],
+  registration_deadline: addDays(today, -5), events: [], rules: "",
+  registration_form: { status: "PUBLISHED", version: 1, published_at: null, fields: [] },
 };
 
 export const registrations: CompetitionRegistration[] = [
   { id: 91, competition: 81, competition_name: "State Wushu Open", event: 811, event_name: "Changquan U12",
     student: 11, student_name: "Aaron Tan", status: "PENDING", registered_at: "2026-10-01T09:00:00+08:00", notes: "",
     fee: "50.00", fee_status: "UNPAID", invoice: { id: 305, number: "INV-2026-0020", balance_due: "50.00" },
-    result: null },
+    result: null, form_version: 2,
+    form_responses: [{ key: "shirt_size", label: "T-shirt size", type: "SINGLE_SELECT", value: "L", display: "L" },
+                     { key: "accommodation", label: "Accommodation", type: "YES_NO", value: false, display: "No" }] },
   { id: 92, competition: 81, competition_name: "State Wushu Open", event: 812, event_name: "Nanquan Girls",
     student: 12, student_name: "Beth Tan", status: "CONFIRMED", registered_at: "2026-09-20T09:00:00+08:00", notes: "",
-    fee: "60.00", fee_status: "PAID", invoice: null, result: null },
+    fee: "60.00", fee_status: "PAID", invoice: null, result: null, form_version: 1, form_responses: [] },
 ];
 
 /** 1×1 PNG as the backend returns it (data: URI). */

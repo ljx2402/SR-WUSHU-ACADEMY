@@ -245,6 +245,7 @@ MODEL_CAPABILITIES = {
     "finance.academypaymentinfo": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENT_INFO_MANAGE),
     "competitions.competition": (Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE),
     "competitions.competitionevent": (Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE),
+    "competitions.registrationformfield": (Cap.COMPETITION_MANAGE, Cap.COMPETITION_MANAGE),
     "competitions.competitionregistration": (Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_MANAGE),
     "competitions.competitionresult": (Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_RESULTS_MANAGE),
     "payroll.coachrate": (Cap.PAYROLL_VIEW_ALL, Cap.PAYROLL_RATES_MANAGE),

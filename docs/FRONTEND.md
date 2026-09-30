@@ -358,20 +358,43 @@ other than the parent's own token are used.
 
 ### Competition registration flow (the backend's, with payment proof)
 
-1. Choose a child and an event (competitions that are open and allow parent registration).
-2. Confirm in a dialog that states the fee, that an invoice is issued due today, and that fees
-   are generally non-refundable.
-3. `POST /api/competition-registrations/`: the backend checks ownership, eligibility (age,
+Each competition has its **own registration form**, configured by academy staff and published
+by the backend (`docs/COMPETITIONS.md`, "Registration forms"). The Parent Portal has no
+competition-specific questions in its code: `src/parent/DynamicForm.tsx` renders whatever the
+competition's `registration_form.fields` contain, by type (TEXT → text input, LONG_TEXT →
+textarea, NUMBER → decimal input, DATE → date input, SINGLE_SELECT → select, MULTI_SELECT →
+checkbox group, YES_NO → Yes/No radio group, EMAIL → email input, PHONE → tel input), with
+label, help text (as the accessible description), placeholder, required marker and limits.
+
+1. Choose the competition (the register page can switch between open competitions), the child
+   and an event; the page shows **that event's fee** as it is chosen, and the competition's
+   rules text.
+2. Answer the competition's questions. Required answers, number ranges, lengths, email/phone
+   formats and options are checked in the browser for convenience; the backend checks all of
+   it again and its errors (`responses.<key>`) are shown at the matching question, which gets
+   focus.
+3. Confirm in a dialog that lists the answers and the fee and says an invoice is issued due
+   today and the entry is confirmed only when paid in full.
+3. `POST /api/competition-registrations/` `{student, event, competition, notes, responses}`:
+   the backend checks ownership, the published form and every answer, eligibility (age,
    gender), duplicates, capacity and the per-child event limit, creates the entry as
    **PENDING ("Awaiting payment")** and issues a competition invoice. Its error messages are
    shown as returned; the app has no eligibility logic of its own.
-4. The page shows the status and the invoice, with "Pay and upload proof" linking to it. The
+4. The page shows the status, the answers as submitted, the amount due and the academy's
+   payment information, with "Pay and upload proof" linking to the invoice. The
    parent pays manually and uploads payment proof there (Pending review). Staff review it and
    record the payment; when the invoice is paid in full the entry becomes **CONFIRMED**
    automatically. A proof alone, even accepted, never confirms the entry; a rejected proof
    leaves it awaiting payment. The app never shows a payment as made.
-5. Withdrawal (while registration is open): unpaid, the invoice is voided; paid, nothing is
-   refunded (the dialog says so). Exceptional refunds are staff-only.
+5. Withdrawal is offered only where the competition allows it (`allow_parent_withdrawal`) and
+   registration is open; otherwise the page says withdrawal is handled by the academy. The
+   backend decides either way. Unpaid: the invoice is voided; paid: nothing is refunded (the
+   dialog says so). Exceptional refunds are staff-only.
+
+The competition page lists each child's entry with its submitted answers ("View answers"), read
+from the registration's own snapshot, so later form changes never alter them. Answers are
+rendered as plain text by React (no `dangerouslySetInnerHTML` anywhere). A form that is not
+published shows "The registration form for this competition is not available yet."
 
 Statuses shown are the backend's enums: PENDING, CONFIRMED, WITHDRAWN, REJECTED, with the
 charge status (UNPAID, PARTIAL, PAID, WAIVED, CANCELLED) as payment status.
@@ -399,8 +422,8 @@ charge status (UNPAID, PARTIAL, PAID, WAIVED, CANCELLED) as payment status.
 
 ## Tests
 
-`npm test` runs 92 tests: the Phase 6A suite (61) and the Parent Portal suite (31,
-`src/parent/test/`). The Phase 6A suite (Vitest, jsdom) covers: the API client (headers, token, 204, 401,
+`npm test` runs 116 tests: the Phase 6A suite (61) and the Parent Portal suites (55,
+`src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10). The Phase 6A suite (Vitest, jsdom) covers: the API client (headers, token, 204, 401,
 403, 404, 400 field errors, 429, 5xx without leaks, network failure, timeout); login
 (validation, success, generic failure, throttle, connection failure, redirect back to the
 requested page); logout (server revocation and offline sign-out); expired or revoked session

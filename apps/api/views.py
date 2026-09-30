@@ -33,8 +33,11 @@ from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceRecord
 from apps.audit.context import reset_actor, set_actor
 from apps.audit.utils import history_for
+from apps.competitions import registration_forms
 from apps.competitions import services as competition_services
-from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
+from apps.competitions.models import (
+    Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult, RegistrationFormField,
+)
 from apps.finance import access as finance_access
 from apps.finance import services as finance_services
 from apps.finance import proofs as proof_services
@@ -820,14 +823,79 @@ class RefundViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
 
 
 class CompetitionViewSet(ApiViewMixin, NoDestroyModelViewSet):
+    """Competitions. Each has its own registration form: staff edit the
+    working copy (``/api/competition-form-fields/``), preview it (``form``),
+    and publish or unpublish it. Everyone else sees only the published form."""
+
     serializer_class = s.CompetitionSerializer
-    capabilities = caps(read=(Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE), write=Cap.COMPETITION_MANAGE)
+    capabilities = caps(read=(Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE), write=Cap.COMPETITION_MANAGE,
+                        form=Cap.COMPETITION_MANAGE, publish_form=Cap.COMPETITION_MANAGE,
+                        unpublish_form=Cap.COMPETITION_MANAGE, reorder_form=Cap.COMPETITION_MANAGE)
 
     def get_queryset(self):
         qs = Competition.objects.prefetch_related("events")
         if not can(self.request.user, Cap.COMPETITION_MANAGE):
             qs = qs.exclude(status=Competition.Status.DRAFT)
         return qs
+
+    def _form_payload(self, competition):
+        fields = competition.form_fields.order_by("order", "id")
+        return {
+            "status": competition.form_status,
+            "version": competition.form_version,
+            "published_at": competition.form_published_at,
+            "published_fields": competition.published_form,
+            "fields": s.RegistrationFormFieldSerializer(fields, many=True).data,
+            "preview": registration_forms.draft_form(competition),
+            "has_unpublished_changes": registration_forms.draft_form(competition) != competition.published_form,
+        }
+
+    @action(detail=True, methods=["get"])
+    def form(self, request, pk=None):
+        """Staff view of the form: working copy, preview and published version."""
+        return Response(self._form_payload(self.get_object()))
+
+    @action(detail=True, methods=["post"], url_path="publish-form")
+    def publish_form(self, request, pk=None):
+        competition = registration_forms.publish_form(self.get_object(), request.user)
+        return Response(self._form_payload(competition))
+
+    @action(detail=True, methods=["post"], url_path="unpublish-form")
+    def unpublish_form(self, request, pk=None):
+        competition = registration_forms.unpublish_form(self.get_object(), request.user)
+        return Response(self._form_payload(competition))
+
+    @action(detail=True, methods=["post"], url_path="reorder-form")
+    def reorder_form(self, request, pk=None):
+        keys = request.data.get("keys")
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+            raise ValidationError({"keys": "Send the field keys in their new order."})
+        competition = self.get_object()
+        registration_forms.reorder_fields(competition, keys, request.user)
+        return Response(self._form_payload(competition))
+
+
+class RegistrationFormFieldViewSet(ApiViewMixin, viewsets.ModelViewSet):
+    """Custom questions of competition registration forms (staff working copy).
+    Changes reach parents only when the form is published again; past
+    registrations keep the questions and answers they were submitted with."""
+
+    serializer_class = s.RegistrationFormFieldSerializer
+    capabilities = caps(read=Cap.COMPETITION_MANAGE, write=Cap.COMPETITION_MANAGE, destroy=Cap.COMPETITION_MANAGE)
+
+    def get_queryset(self):
+        qs = RegistrationFormField.objects.select_related("competition")
+        if id_param(self.request.query_params, "competition"):
+            qs = qs.filter(competition_id=id_param(self.request.query_params, "competition"))
+        return qs.order_by("competition", "order", "id")
+
+    def perform_create(self, serializer):
+        competition = serializer.validated_data["competition"]
+        if competition.form_fields.count() >= registration_forms.MAX_FIELDS:
+            raise ValidationError({"detail": f"A registration form can have at most "
+                                             f"{registration_forms.MAX_FIELDS} custom fields."})
+        order = serializer.validated_data.get("order") or (competition.form_fields.count() + 1)
+        serializer.save(order=order)
 
 
 class CompetitionEventViewSet(ApiViewMixin, NoDestroyModelViewSet):
@@ -902,8 +970,18 @@ class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins
         event = serializer.validated_data["event"]
         if event.competition.status == Competition.Status.DRAFT and not manager:
             raise ValidationError({"detail": "This competition is not open."})
-        registration = competition_services.register(student, event, request.user,
-                                                     serializer.validated_data.get("notes", ""))
+        # A client may say which competition it is registering for; it must be the event's.
+        competition_id = id_param(request.data, "competition")
+        if competition_id is not None and competition_id != event.competition_id:
+            raise ValidationError({"event": "This event does not belong to that competition."})
+        try:
+            registration = competition_services.register(student, event, request.user,
+                                                         serializer.validated_data.get("notes", ""),
+                                                         responses=request.data.get("responses"))
+        except DjangoValidationError as exc:
+            if hasattr(exc, "error_dict"):
+                raise ValidationError(exc.message_dict) from None
+            raise
         return Response(self.get_serializer(registration).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])

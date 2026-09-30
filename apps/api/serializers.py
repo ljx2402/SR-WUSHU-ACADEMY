@@ -17,7 +17,9 @@ from apps.accounts.capabilities import Cap, Role, can
 from apps.accounts.models import Coach, Parent, User  # noqa: F401  (Parent used by GuardianSerializer)
 from apps.attendance.models import AttendanceRecord, AttendanceStatus
 from apps.audit.models import AuditLog
-from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
+from apps.competitions.models import (
+    Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult, RegistrationFormField,
+)
 from apps.finance.models import (
     AcademyPaymentInfo, Charge, FeeType, Invoice, InvoiceItem, Payment, PaymentAllocation, PaymentProof, Receipt, Refund,
 )
@@ -426,15 +428,22 @@ class CompetitionEventSerializer(serializers.ModelSerializer):
 class CompetitionSerializer(serializers.ModelSerializer):
     events = CompetitionEventSerializer(many=True, read_only=True)
     is_open = serializers.SerializerMethodField()
+    registration_form = serializers.SerializerMethodField()
 
     class Meta:
         model = Competition
         fields = ["id", "name", "organiser", "venue", "start_date", "end_date", "registration_deadline", "status",
-                  "allow_parent_registration", "max_events_per_student", "age_reference_date", "description",
-                  "is_open", "events"]
+                  "allow_parent_registration", "allow_parent_withdrawal", "max_events_per_student",
+                  "age_reference_date", "description", "rules", "is_open", "events", "registration_form"]
 
     def get_is_open(self, obj):
         return obj.is_open_for_registration()
+
+    def get_registration_form(self, obj):
+        """The PUBLISHED form only (never the staff working copy)."""
+        published = obj.form_status == Competition.FormStatus.PUBLISHED
+        return {"status": obj.form_status, "version": obj.form_version, "published_at": obj.form_published_at,
+                "fields": obj.published_form if published else []}
 
 
 class CompetitionResultSerializer(serializers.ModelSerializer):
@@ -451,6 +460,33 @@ class CompetitionResultSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class RegistrationFormFieldSerializer(serializers.ModelSerializer):
+    """A custom question in a competition's registration form (staff working copy)."""
+
+    class Meta:
+        model = RegistrationFormField
+        fields = ["id", "competition", "key", "label", "field_type", "required", "help_text", "placeholder",
+                  "options", "max_length", "min_value", "max_value", "order", "is_active"]
+
+    def validate(self, attrs):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from apps.competitions.registration_forms import validate_field_definition
+
+        if self.instance is not None and "competition" in attrs and attrs["competition"] != self.instance.competition:
+            raise serializers.ValidationError({"competition": "A field cannot be moved to another competition."})
+        if self.instance is not None and "key" in attrs and attrs["key"] != self.instance.key:
+            raise serializers.ValidationError({"key": "The key cannot change (answers are stored under it). "
+                                                      "Deactivate this field and add a new one."})
+        candidate = RegistrationFormField(**{**({f: getattr(self.instance, f) for f in self.Meta.fields if f != "id"}
+                                                if self.instance else {}), **attrs})
+        try:
+            validate_field_definition(candidate)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from None
+        return attrs
+
+
 class CompetitionRegistrationSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.full_name", read_only=True)
     event_name = serializers.CharField(source="event.name", read_only=True)
@@ -464,10 +500,25 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompetitionRegistration
         fields = ["id", "competition", "competition_name", "event", "event_name", "student", "student_name", "status",
-                  "registered_at", "notes", "fee", "fee_status", "invoice", "result"]
-        read_only_fields = ["status", "registered_at"]
+                  "registered_at", "notes", "fee", "fee_status", "invoice", "result", "form_version", "form_responses"]
+        read_only_fields = ["status", "registered_at", "form_version", "form_responses"]
         # Duplicates are refused by the registration service (after the permission check).
         validators = []
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Form answers (which may include contact or health details) are for the
+        # family and competition staff, not for coaches viewing their athletes.
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and not can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL):
+            from apps.academy import access
+
+            own = access.is_parent_of(user, instance.student) or getattr(access.student_of(user), "pk", None) \
+                == instance.student_id
+            if not own:
+                data.pop("form_responses", None)
+        return data
 
     def get_invoice(self, obj):
         item = obj.charge.active_invoice_item() if obj.charge_id else None

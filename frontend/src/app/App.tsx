@@ -12,7 +12,8 @@ import { LoginPage } from "../pages/LoginPage";
 import { ModulePlaceholderPage } from "../pages/ModulePlaceholderPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { AttendancePage } from "../parent/pages/AttendancePage";
-import { CompetitionDetailPage, CompetitionRegisterPage, CompetitionsPage } from "../parent/pages/CompetitionPages";
+import { CompetitionDetailPage, CompetitionsPage } from "../parent/pages/CompetitionPages";
+import { CompetitionRegisterPage } from "../parent/pages/CompetitionRegisterPage";
 import { FamilyPage } from "../parent/pages/FamilyPage";
 import {
   FinanceOverviewPage, InvoiceDetailPage, InvoicesPage, PaymentProofsPage, PaymentsPage, ReceiptDetailPage,
