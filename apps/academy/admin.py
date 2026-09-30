@@ -261,6 +261,25 @@ class AttendanceSheetForm(forms.Form):
                  self.cleaned_data[f"remarks_{row['student'].pk}"]) for row in self.rows]
 
 
+class SessionReasonForm(forms.Form):
+    reason = forms.CharField(max_length=255, widget=forms.Textarea(attrs={"rows": 3}),
+                             help_text="Required. Stored in the audit log.")
+
+
+class RescheduleForm(SessionReasonForm):
+    training_class = forms.ModelChoiceField(queryset=TrainingClass.objects.filter(is_active=True))
+    date = forms.DateField()
+    start_time = forms.TimeField()
+    end_time = forms.TimeField()
+    field_order = ["training_class", "date", "start_time", "end_time", "reason"]
+
+
+class ReassignCoachForm(SessionReasonForm):
+    from_coach = forms.ModelChoiceField(queryset=Coach.objects.none(), label="Replace coach")
+    to_coach = forms.ModelChoiceField(queryset=Coach.objects.filter(is_active=True), label="With coach")
+    field_order = ["from_coach", "to_coach", "reason"]
+
+
 def _page(model_admin, request, template, title, **context):
     return render(request, template, {**model_admin.admin_site.each_context(request), "opts": model_admin.model._meta,
                                       "title": title, **context})
@@ -268,25 +287,97 @@ def _page(model_admin, request, template, title, **context):
 
 @admin.register(TrainingSession)
 class TrainingSessionAdmin(NoDeleteMixin, admin.ModelAdmin):
-    list_display = ("training_class", "date", "start_time", "end_time", "status")
     list_filter = ("status", "training_class__category", "training_class")
     date_hierarchy = "date"
     search_fields = ("training_class__name",)
     inlines = [SessionCoachInline]
     change_form_template = "admin/academy/trainingsession/change_form.html"
 
+    list_display = ("training_class", "date", "start_time", "end_time", "status", "phase_display")
+    # Class, date and times change only through "Reschedule" (reason, lifecycle
+    # checks); the model refuses unsafe changes on every path anyway.
+    TIMING_FIELDS = ("training_class", "date", "start_time", "end_time")
+
     def get_urls(self):
+        view = self.admin_site.admin_view
         return [
-            path("<int:pk>/substitute/", self.admin_site.admin_view(self.assign_substitute_view),
-                 name="academy_trainingsession_substitute"),
-            path("<int:pk>/attendance/", self.admin_site.admin_view(self.attendance_view),
-                 name="academy_trainingsession_attendance"),
+            path("<int:pk>/substitute/", view(self.assign_substitute_view), name="academy_trainingsession_substitute"),
+            path("<int:pk>/attendance/", view(self.attendance_view), name="academy_trainingsession_attendance"),
+            path("<int:pk>/reschedule/", view(self.reschedule_view), name="academy_trainingsession_reschedule"),
+            path("<int:pk>/cancel/", view(self.cancel_view), name="academy_trainingsession_cancel"),
+            path("<int:pk>/reinstate/", view(self.reinstate_view), name="academy_trainingsession_reinstate"),
+            path("<int:pk>/reassign-coach/", view(self.reassign_coach_view),
+                 name="academy_trainingsession_reassign_coach"),
         ] + super().get_urls()
+
+    @admin.display(description="Phase")
+    def phase_display(self, obj):
+        return obj.get_phase_display_label()
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj is not None:
+            readonly += self.TIMING_FIELDS
+        return readonly
 
     def render_change_form(self, request, context, *args, **kwargs):
         context["can_assign_substitute"] = can(request.user, Cap.SUBSTITUTE_ASSIGN)
         context["can_view_attendance"] = can(request.user, Cap.ATTENDANCE_VIEW_ALL)
+        context["can_manage_sessions"] = can(request.user, Cap.SESSIONS_MANAGE)
         return super().render_change_form(request, context, *args, **kwargs)
+
+    def _session_action(self, request, pk, form_class, title, run, warning, initial=None, prepare=None):
+        if not can(request.user, Cap.SESSIONS_MANAGE):
+            raise PermissionDenied
+        session = get_object_or_404(TrainingSession, pk=pk)
+        form = form_class(request.POST or None, initial=initial(session) if initial else None)
+        if prepare:
+            prepare(form, session)
+        if request.method == "POST" and form.is_valid():
+            try:
+                run(session, form.cleaned_data)
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                messages.success(request, f"{title} done.")
+                return redirect(reverse("admin:academy_trainingsession_change", args=[pk]))
+        return _page(self, request, "admin/finance/reason_form.html", f"{title} – {session}", form=form,
+                     object=session, warning=warning)
+
+    def cancel_view(self, request, pk):
+        return self._session_action(
+            request, pk, SessionReasonForm, "Cancel session",
+            lambda session, data: services.cancel_session(session, request.user, data["reason"]),
+            "The session stays on record. Its active substitute authorization is cancelled, no attendance can be "
+            "recorded and it is not paid.")
+
+    def reinstate_view(self, request, pk):
+        return self._session_action(
+            request, pk, SessionReasonForm, "Reinstate session",
+            lambda session, data: services.reinstate_session(session, request.user, data["reason"]),
+            "Cancelled substitute authorizations stay cancelled.")
+
+    def reschedule_view(self, request, pk):
+        return self._session_action(
+            request, pk, RescheduleForm, "Reschedule session",
+            lambda session, data: services.reschedule_session(
+                session, request.user, data["reason"], date=data["date"], start_time=data["start_time"],
+                end_time=data["end_time"], training_class=data["training_class"]),
+            "Only an upcoming session without attendance, substitute or payroll records can be moved.",
+            initial=lambda session: {"training_class": session.training_class_id, "date": session.date,
+                                     "start_time": session.start_time, "end_time": session.end_time})
+
+    def reassign_coach_view(self, request, pk):
+        def prepare(form, session):
+            form.fields["from_coach"].queryset = Coach.objects.filter(
+                session_slots__session=session, session_slots__role=SessionCoach.Role.REGULAR).distinct()
+
+        return self._session_action(
+            request, pk, ReassignCoachForm, "Reassign regular coach",
+            lambda session, data: services.reassign_regular_coach(
+                session, data["from_coach"], data["to_coach"], request.user, data["reason"]),
+            "Only before the session starts. For an absence on the day, authorize a substitute instead.",
+            prepare=prepare)
 
     def assign_substitute_view(self, request, pk):
         if not can(request.user, Cap.SUBSTITUTE_ASSIGN):

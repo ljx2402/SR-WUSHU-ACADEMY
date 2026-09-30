@@ -101,14 +101,14 @@ class ConflictTests(SubstituteTestCase):
             self.authorize()
 
     def test_completed_session_refuses_new_substitute(self):
-        self.session_b.status = TrainingSession.Status.COMPLETED
-        self.session_b.save()
-        with self.assertRaisesMessage(ValidationError, "scheduled session"):
+        # Phase 4: "completed" is derived from the clock (no stored COMPLETED status).
+        after_end = self.session_b.ends_at
+        with frozen(after_end), self.assertRaisesMessage(ValidationError, "has not ended"):
             self.authorize()
 
     def test_session_whose_access_window_has_ended_refuses_new_substitute(self):
         later = self.session_b.ends_at + datetime.timedelta(hours=25)
-        with frozen(later), self.assertRaisesMessage(ValidationError, "already ended"):
+        with frozen(later), self.assertRaisesMessage(ValidationError, "has not ended"):
             self.authorize()
 
     def test_inactive_coach_cannot_be_authorized(self):

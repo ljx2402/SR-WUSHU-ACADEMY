@@ -191,3 +191,17 @@ cancelled or expired substitute authorization grants nothing. A substitute never
 other sessions, families or finance. COACH + PARENT combines the two contexts without either one
 widening the other: parent access never shows a class roster, and coaching never shows family
 finance. Details: `ATTENDANCE_AND_SUBSTITUTES.md`.
+
+## Sessions, payroll and competition results (Phase 4)
+
+| Action | Who |
+|---|---|
+| Cancel / reinstate / reschedule a session, reassign its regular coach (reason required) | ADMIN, SUPER_ADMIN (`sessions.manage`) |
+| Calculate payroll, manage rates and adjustments | FINANCE_ADMIN, SUPER_ADMIN (`payroll.prepare`, `payroll.rates.manage`) |
+| Finalize payroll | **SUPER_ADMIN only** (`payroll.finalize`); FINANCE_ADMIN cannot, by API, admin action or service |
+| View payroll runs, all payslips, payroll reports (with bank details) | FINANCE_ADMIN, SUPER_ADMIN |
+| Own finalized payslips (no bank details of anyone) | COACH |
+| Record competition results (confirmed registrations only) | ADMIN, SUPER_ADMIN (`competition.results.manage`) |
+
+ADMIN, parents and students have no payroll access and never see coach bank details. Details:
+`SESSION_LIFECYCLE.md`, `PAYROLL.md`, `COMPETITIONS.md`.

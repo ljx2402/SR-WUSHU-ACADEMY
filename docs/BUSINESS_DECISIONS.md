@@ -20,13 +20,13 @@ yet**; the current code may still behave differently until that phase lands.
 5. **Attendance** *(implemented in Phase 3, see `ATTENDANCE_AND_SUBSTITUTES.md`)*: coaches may edit
    attendance until **48 hours after the session ends**; afterwards only an administrator correction
    with a reason. `UNMARKED` is neither Present nor Absent in the percentage and is shown separately.
-6. **Competition payment** *(finance side implemented in Phase 1; full competition workflow P7)*: the fee is paid **at registration**: registration submitted →
+6. **Competition payment** *(implemented in Phase 1; results only for confirmed registrations since Phase 4, see `COMPETITIONS.md`)*: the fee is paid **at registration**: registration submitted →
    fee generated → payment required immediately → paid → `CONFIRMED`. (Not "approve first, charge
    later".)
 7. **Competition refunds** *(Phase 1: `Refund` + `record_exceptional_refund`, never automatic; P7 builds the workflow)*: paid registrations are generally **non-refundable**. `ADMIN`
    or `FINANCE_ADMIN` may authorize an exceptional refund with a reason; it is audited, keeps the
    original receipt and follows proper finance records.
-8. **Coach payroll** *(P6)*: **all coaches are paid per training session**; there is no monthly
+8. **Coach payroll** *(implemented in Phase 4, see `PAYROLL.md`)*: **all coaches are paid per training session**; there is no monthly
    salary model and no proration. Only completed eligible sessions are paid. Regular and substitute
    rates may differ (e.g. 18 × RM80 + 5 × RM120 = RM2,040).
 9. **Payroll approval**: `FINANCE_ADMIN` prepares/calculates; `SUPER_ADMIN` finalizes.
@@ -38,9 +38,8 @@ yet**; the current code may still behave differently until that phase lands.
 
 **Phase 2 (admin guardrails)** added no new business rules. It makes the Django admin enforce the
 rules above in the same way as the API. See the "Django admin" section of `ROLES_AND_PERMISSIONS.md`
-and "Protection of financial history" in `FINANCE_ARCHITECTURE.md`. Admin paths that belong to
-later phases stay as they are for now: session date/time/class editing (P4) and competition
-results for unconfirmed registrations (P7). (Phase 3 closed the coach-slot and attendance admin paths.)
+and "Protection of financial history" in `FINANCE_ARCHITECTURE.md`. (Phase 3 closed the coach-slot and attendance admin paths; Phase 4 closed session
+date/time/class editing and results for unconfirmed registrations.)
 
 **Phase 3 (substitute coach + attendance)** implements decision 5 and these rules, documented in
 `ATTENDANCE_AND_SUBSTITUTES.md`:
@@ -48,10 +47,25 @@ results for unconfirmed registrations (P7). (Phase 3 closed the coach-slot and a
   (`ASSIGNED` → `REVOKED` or `CANCELLED`, both final). There is at most **one active substitute per
   session**. Revoking needs a reason. Cancelling a session cancels its substitute. History is never
   deleted or reactivated.
-* A substitute can only be authorized for a scheduled session whose substitute access window has
-  not ended.
+* A substitute could only be authorized while the session's access window was open. Phase 4
+  tightened this: only before the session **ends**.
 * The 48-hour window ends exactly 48 hours after the session's end time in Malaysia time. At that
   moment it is closed. After it, even a first-time entry is an administrator correction and needs a
   reason.
 * Only students on the session's expected roster can be marked. Unmarked students are reported
   separately and are left out of the percentage.
+
+**Phase 4 (session lifecycle, payroll, competition integrity)**, documented in
+`SESSION_LIFECYCLE.md`, `PAYROLL.md` and `COMPETITIONS.md`:
+* A session is upcoming, in progress, completed (all derived from its times in Malaysia time) or
+  cancelled. Legacy stored "completed" values became "scheduled".
+* Date, time and class change only for an upcoming session with no attendance, substitute or
+  payroll history, through the reschedule service with a reason. A regular coach can be reassigned
+  only before the session starts.
+* A finalized payroll month freezes its sessions.
+* Attendance can be recorded from the session start, never before.
+* Payroll is per session only: explicit rate rules, and a missing rate blocks finalization. A
+  period can be finalized only after it has ended, and only if nothing changed since it was
+  calculated. Finalized payroll is immutable.
+* A competition result needs a confirmed (paid) registration, and a registration with a result
+  cannot be withdrawn.

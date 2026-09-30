@@ -6,5 +6,14 @@
   {% if original and can_assign_substitute %}
     <li><a href="{% url 'admin:academy_trainingsession_substitute' original.pk %}">Assign substitute coach</a></li>
   {% endif %}
+  {% if original and can_manage_sessions %}
+    <li><a href="{% url 'admin:academy_trainingsession_reschedule' original.pk %}">Reschedule</a></li>
+    <li><a href="{% url 'admin:academy_trainingsession_reassign_coach' original.pk %}">Reassign coach</a></li>
+    {% if original.status == "CANCELLED" %}
+      <li><a href="{% url 'admin:academy_trainingsession_reinstate' original.pk %}">Reinstate</a></li>
+    {% else %}
+      <li><a href="{% url 'admin:academy_trainingsession_cancel' original.pk %}">Cancel session</a></li>
+    {% endif %}
+  {% endif %}
   {{ block.super }}
 {% endblock %}

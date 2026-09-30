@@ -11,7 +11,7 @@ from apps.attendance.models import MARKED_STATUSES, AttendanceRecord
 from apps.attendance.services import expected_pairs, held_sessions, summarize
 from apps.competitions.models import CompetitionRegistration, CompetitionResult
 from apps.finance.models import Charge, Invoice, Payment, Receipt, Refund
-from apps.payroll.models import Payslip
+from apps.payroll.models import Payslip, PayslipLine
 
 
 def _date(value, default=None):
@@ -200,12 +200,13 @@ def results_report(params):
     qs = CompetitionResult.objects.select_related("registration__event__competition", "registration__student")
     if params.get("competition"):
         qs = qs.filter(registration__event__competition_id=params["competition"])
-    columns = ["competition", "date", "event", "student_no", "student", "placing", "medal", "score", "remarks"]
+    columns = ["competition", "date", "event", "student_no", "student", "registration_status", "placing", "medal",
+               "score", "remarks"]
     rows = []
     for r in qs.order_by("registration__event__competition__start_date", "registration__event__name", "placing"):
         reg = r.registration
         rows.append([reg.event.competition.name, reg.event.competition.start_date.isoformat(), reg.event.name,
-                     reg.student.student_no, reg.student.full_name, r.placing or "", r.medal,
+                     reg.student.student_no, reg.student.full_name, reg.status, r.placing or "", r.medal,
                      str(r.score) if r.score is not None else "", r.remarks])
     return columns, rows
 
@@ -226,6 +227,27 @@ def payroll_report(params):
     return columns, rows
 
 
+def payroll_lines_report(params):
+    """Every paid session: who, which session, regular or substitute (and for
+    whom), the rate and the rule that chose it, the amount and any issue."""
+    qs = PayslipLine.objects.filter(slot__isnull=False).select_related(
+        "payslip__run", "payslip__coach", "session__training_class", "slot__replaces")
+    if params.get("year"):
+        qs = qs.filter(payslip__run__year=int(params["year"]))
+    if params.get("month"):
+        qs = qs.filter(payslip__run__month=int(params["month"]))
+    columns = ["year", "month", "run_status", "coach", "role", "original_coach", "date", "class", "rate", "rule",
+               "amount", "issue"]
+    rows = []
+    for line in qs.order_by("payslip__run__year", "payslip__run__month", "payslip__coach__full_name",
+                            "session__date", "session__start_time"):
+        run, session = line.payslip.run, line.session
+        rows.append([run.year, run.month, run.status, line.payslip.coach.full_name, line.slot.role,
+                     line.slot.replaces.full_name if line.slot.replaces else "", session.date.isoformat(),
+                     session.training_class.name, str(line.rate), line.rule, str(line.amount), line.issue])
+    return columns, rows
+
+
 REPORTS = {
     "students": students_report,
     "attendance": attendance_report,
@@ -237,4 +259,5 @@ REPORTS = {
     "competitions": competitions_report,
     "results": results_report,
     "payroll": payroll_report,
+    "payroll_lines": payroll_lines_report,
 }

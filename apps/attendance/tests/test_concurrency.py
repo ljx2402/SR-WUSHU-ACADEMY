@@ -2,6 +2,7 @@
 submissions on PostgreSQL (skipped on SQLite, which serialises all writes)."""
 
 import datetime
+from unittest import mock
 
 from django.core.exceptions import ValidationError
 from django.db import connection
@@ -18,10 +19,21 @@ from apps.attendance.services import mark_attendance
 from apps.finance.tests.test_concurrency import POSTGRES_ONLY, run_concurrently
 
 
+def freeze_during_session(test):
+    """Fix the clock at 18:00 today (academy time), during the 17:00-19:00 test
+    session: attendance can be recorded and a substitute authorized."""
+    moment = timezone.make_aware(datetime.datetime.combine(timezone.localdate(), datetime.time(18)),
+                                 timezone.get_default_timezone())
+    patcher = mock.patch("django.utils.timezone.now", return_value=moment)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
+
 class Phase3ConcurrencyTests(TransactionTestCase):
     def setUp(self):
         if connection.vendor != "postgresql":
             self.skipTest(POSTGRES_ONLY)
+        freeze_during_session(self)
         today = timezone.localdate()
         self.admin_1 = make_user("desk1", Role.ADMIN)
         self.admin_2 = make_user("desk2", Role.ADMIN)
@@ -85,6 +97,7 @@ class AutocommitTests(TransactionTestCase):
     def test_cancelling_a_session_through_the_api_in_autocommit_mode(self):
         from rest_framework.test import APIClient
 
+        freeze_during_session(self)
         today = timezone.localdate()
         admin = make_user("desk", Role.ADMIN)
         sub = Coach.objects.create(user=make_user("sub", Role.COACH), full_name="Sub", phone="01")

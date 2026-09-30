@@ -36,6 +36,7 @@ from apps.competitions.models import Competition, CompetitionEvent, CompetitionR
 from apps.finance import access as finance_access
 from apps.finance import services as finance_services
 from apps.finance.models import Charge, Invoice
+from apps.payroll import services as payroll_services
 from apps.payroll.models import PayrollRun, Payslip
 
 from . import serializers as s
@@ -344,6 +345,10 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
         attendance=(Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_VIEW_ASSIGNED),
         assign_substitute=Cap.SUBSTITUTE_ASSIGN,
         revoke_substitute=Cap.SUBSTITUTE_REVOKE,
+        cancel=Cap.SESSIONS_MANAGE,
+        reinstate=Cap.SESSIONS_MANAGE,
+        reschedule=Cap.SESSIONS_MANAGE,
+        reassign_coach=Cap.SESSIONS_MANAGE,
     )
     STAFF_ACTIONS = {"roster", "attendance"}
 
@@ -397,6 +402,36 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
         saved = attendance_services.record_session_attendance(
             session, entries, request.user, payload.validated_data["reason"])
         return Response(s.AttendanceRecordSerializer(saved, many=True).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        session = academy_services.cancel_session(self.get_object(), request.user, request.data.get("reason", ""))
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["post"])
+    def reinstate(self, request, pk=None):
+        session = academy_services.reinstate_session(self.get_object(), request.user, request.data.get("reason", ""))
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["post"])
+    def reschedule(self, request, pk=None):
+        session = self.get_object()
+        payload = s.RescheduleSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        session = academy_services.reschedule_session(
+            session, request.user, data["reason"], date=data.get("date"), start_time=data.get("start_time"),
+            end_time=data.get("end_time"), training_class=data.get("training_class"))
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["post"], url_path="reassign-coach")
+    def reassign_coach(self, request, pk=None):
+        session = self.get_object()
+        from_coach = get_object_or_404(Coach, pk=self._coach_id(request, "from_coach"))
+        to_coach = get_object_or_404(Coach, pk=self._coach_id(request, "to_coach"))
+        slot = academy_services.reassign_regular_coach(session, from_coach, to_coach, request.user,
+                                                       request.data.get("reason", ""))
+        return Response(s.SessionCoachSerializer(slot).data)
 
     @staticmethod
     def _coach_id(request, field, required=True):
@@ -759,8 +794,24 @@ class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins
 
 
 class CompetitionResultViewSet(ApiViewMixin, NoDestroyModelViewSet):
+    """Results are written through ``competitions.services.record_result``:
+    only for a confirmed (paid) registration."""
+
     serializer_class = s.CompetitionResultSerializer
     capabilities = caps(read=REGISTRATION_READ, write=Cap.COMPETITION_RESULTS_MANAGE)
+
+    def perform_create(self, serializer):
+        data = dict(serializer.validated_data)
+        registration = data.pop("registration")
+        if CompetitionResult.objects.filter(registration=registration).exists():
+            raise ValidationError({"registration": "This registration already has a result; update that result."})
+        serializer.instance = competition_services.record_result(registration, self.request.user, **data)
+
+    def perform_update(self, serializer):
+        data = dict(serializer.validated_data)
+        data.pop("registration", None)
+        serializer.instance = competition_services.record_result(serializer.instance.registration,
+                                                                 self.request.user, **data)
 
     def get_queryset(self):
         qs = CompetitionResult.objects.select_related("registration__student", "registration__event__competition")
@@ -768,6 +819,28 @@ class CompetitionResultViewSet(ApiViewMixin, NoDestroyModelViewSet):
         if self.request.query_params.get("competition"):
             qs = qs.filter(registration__event__competition_id=self.request.query_params["competition"])
         return qs
+
+
+class PayrollRunViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
+    """Payroll periods. Finance calculates; only a super admin finalizes."""
+
+    serializer_class = s.PayrollRunSerializer
+    queryset = PayrollRun.objects.all()
+    capabilities = caps(read=Cap.PAYROLL_VIEW_ALL, calculate=Cap.PAYROLL_PREPARE, finalize=Cap.PAYROLL_FINALIZE)
+
+    @action(detail=False, methods=["post"])
+    def calculate(self, request):
+        try:
+            year, month = int(request.data.get("year")), int(request.data.get("month"))
+        except (TypeError, ValueError):
+            raise ValidationError({"detail": "year and month are required."}) from None
+        run = payroll_services.calculate_run(year, month, request.user)
+        return Response(self.get_serializer(run).data)
+
+    @action(detail=True, methods=["post"])
+    def finalize(self, request, pk=None):
+        run = payroll_services.finalize_run(self.get_object(), request.user)
+        return Response(self.get_serializer(run).data)
 
 
 class PayslipViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):

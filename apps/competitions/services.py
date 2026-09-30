@@ -8,7 +8,7 @@ from apps.audit.context import audit_context
 from apps.finance import services as finance_services
 from apps.finance.models import Charge, FeeType
 
-from .models import CompetitionRegistration
+from .models import CompetitionRegistration, CompetitionResult
 
 
 @transaction.atomic
@@ -64,6 +64,8 @@ def register(student, event, actor, notes=""):
 
 @transaction.atomic
 def withdraw(registration, actor, reason="", status=CompetitionRegistration.Status.WITHDRAWN):
+    # Lock: a withdrawal and a result entry for the same registration happen one after the other.
+    registration = CompetitionRegistration.objects.select_for_update().get(pk=registration.pk)
     competition = registration.event.competition
     if not can(actor, Cap.COMPETITION_REGISTRATIONS_MANAGE):
         status = CompetitionRegistration.Status.WITHDRAWN
@@ -73,6 +75,8 @@ def withdraw(registration, actor, reason="", status=CompetitionRegistration.Stat
             raise ValidationError("The registration deadline has passed; please contact the academy.")
     if registration.status in CompetitionRegistration.INACTIVE:
         raise ValidationError("This registration is already withdrawn.")
+    if CompetitionResult.objects.filter(registration=registration).exists():
+        raise ValidationError("A result has been recorded for this registration; it cannot be withdrawn.")
     with audit_context(actor, reason or "Withdrawn"):
         registration.status = status
         registration.save()
@@ -103,3 +107,27 @@ def confirm(registration, actor):
         registration.status = CompetitionRegistration.Status.CONFIRMED
         registration.save()
     return registration
+
+
+RESULT_FIELDS = ("placing", "medal", "score", "remarks")
+
+
+@transaction.atomic
+def record_result(registration, actor, **values):
+    """Record or update the result of a CONFIRMED registration."""
+    if not can(actor, Cap.COMPETITION_RESULTS_MANAGE):
+        raise PermissionDenied("You do not have permission to record competition results.")
+    registration = CompetitionRegistration.objects.select_for_update().get(pk=registration.pk)
+    if registration.status != CompetitionRegistration.Status.CONFIRMED or not is_paid(registration):
+        raise ValidationError(f"Results can only be recorded for a confirmed (paid) registration; "
+                              f"this registration is {registration.get_status_display().lower()}.")
+    unknown = set(values) - set(RESULT_FIELDS)
+    if unknown:
+        raise ValidationError(f"Unknown result fields: {', '.join(sorted(unknown))}")
+    result = CompetitionResult.objects.filter(registration=registration).first() or CompetitionResult(
+        registration=registration)
+    with audit_context(actor, "Competition result recorded"):
+        for field, value in values.items():
+            setattr(result, field, value)
+        result.save()
+    return result

@@ -25,6 +25,7 @@ router.register("competitions", views.CompetitionViewSet, basename="competition"
 router.register("competition-events", views.CompetitionEventViewSet, basename="competition-event")
 router.register("competition-registrations", views.CompetitionRegistrationViewSet, basename="competition-registration")
 router.register("competition-results", views.CompetitionResultViewSet, basename="competition-result")
+router.register("payroll-runs", views.PayrollRunViewSet, basename="payroll-run")
 router.register("payslips", views.PayslipViewSet, basename="payslip")
 
 urlpatterns = [

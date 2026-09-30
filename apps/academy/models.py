@@ -365,15 +365,44 @@ class Enrollment(AuditedModel):
         raise PermissionDenied("Class membership history cannot be deleted; set an end date instead.")
 
 
+def payroll_finalized_for(date):
+    """True if the payroll month containing ``date`` is finalized (then the
+    sessions of that month are fixed history)."""
+    from django.apps import apps
+
+    PayrollRun = apps.get_model("payroll", "PayrollRun")
+    return PayrollRun.objects.filter(year=date.year, month=date.month, status="FINALIZED").exists()
+
+
 class TrainingSession(AuditedModel):
-    """A single training occurrence of a class on a given date."""
+    """A single training occurrence of a class on a given date.
+
+    Lifecycle (see ``phase``): the only stored state is whether the session is
+    cancelled. Whether it is upcoming, in progress or completed is derived from
+    its date and times in the academy time zone, so it can never disagree with
+    the clock. Changes are guarded in ``save()`` for every path (API, admin,
+    services, shell):
+
+    * date, times and class can change only before the session starts, and only
+      while it has no attendance, no substitute history and no payroll lines
+      (``services.reschedule_session``);
+    * cancel / reinstate is refused once the session's payroll month is finalized;
+    * nothing about a session in a finalized payroll month can change.
+    """
 
     audit_category = AuditCategory.CLASS
 
     class Status(models.TextChoices):
         SCHEDULED = "SCHEDULED", "Scheduled"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    class Phase(models.TextChoices):
+        UPCOMING = "UPCOMING", "Upcoming"
+        IN_PROGRESS = "IN_PROGRESS", "In progress"
         COMPLETED = "COMPLETED", "Completed"
         CANCELLED = "CANCELLED", "Cancelled"
+
+    TIMING_FIELDS = ("training_class_id", "date", "start_time", "end_time")
 
     training_class = models.ForeignKey(TrainingClass, on_delete=models.PROTECT, related_name="sessions")
     date = models.DateField(db_index=True)
@@ -388,7 +417,8 @@ class TrainingSession(AuditedModel):
     class Meta:
         ordering = ["-date", "-start_time"]
         constraints = [
-            models.UniqueConstraint(fields=["training_class", "date", "start_time"], name="unique_session_slot")
+            models.UniqueConstraint(fields=["training_class", "date", "start_time"], name="unique_session_slot"),
+            models.CheckConstraint(condition=Q(status__in=["SCHEDULED", "CANCELLED"]), name="session_status_valid"),
         ]
 
     def __str__(self):
@@ -415,16 +445,82 @@ class TrainingSession(AuditedModel):
         seconds = (self.ends_at - self.starts_at).total_seconds()
         return (Decimal(seconds) / Decimal(3600)).quantize(Decimal("0.01"))
 
+    def phase(self, at=None):
+        """The one authoritative lifecycle rule: cancelled, else by the clock.
+        Upcoming before the start, in progress from the start (inclusive) until
+        the end (exclusive), completed from the end."""
+        if self.status == self.Status.CANCELLED:
+            return self.Phase.CANCELLED
+        at = at or timezone.now()
+        if at < self.starts_at:
+            return self.Phase.UPCOMING
+        if at < self.ends_at:
+            return self.Phase.IN_PROGRESS
+        return self.Phase.COMPLETED
+
+    def get_phase_display_label(self, at=None):
+        return self.Phase(self.phase(at)).label
+
+    def has_started(self, at=None):
+        return (at or timezone.now()) >= self.starts_at
+
+    def has_history(self):
+        """Records whose meaning depends on this session's class, date and time."""
+        from django.apps import apps
+
+        PayslipLine = apps.get_model("payroll", "PayslipLine")
+        return (self.attendance.exists() or self.coach_slots.filter(role=SessionCoach.Role.SUBSTITUTE).exists()
+                or PayslipLine.objects.filter(session=self).exists())
+
     def save(self, *args, **kwargs):
         with transaction.atomic():
-            previous = None
+            old = None
             if self.pk is not None:
-                previous = TrainingSession.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+                old = TrainingSession.objects.select_for_update().filter(pk=self.pk).first()
+            self._check_change(old)
             super().save(*args, **kwargs)
-            if self.status == self.Status.CANCELLED and previous != self.Status.CANCELLED:
+            if old is None:
+                return
+            if self.status == self.Status.CANCELLED and old.status != self.Status.CANCELLED:
                 # Whichever path cancelled the session (API, admin, service), no
                 # substitute authorization may stay active on it.
                 SessionCoach.cancel_substitutes_for(self)
+            if (old.training_class_id, old.date) != (self.training_class_id, self.date):
+                self._resync_regular_coaches()
+
+    def _check_change(self, old):
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValidationError("End time must be after start time.")
+        if old is None:
+            if payroll_finalized_for(self.date):
+                raise ValidationError("Payroll for this month is finalized; sessions cannot be added to it.")
+            return
+        timing_changed = any(getattr(old, f) != getattr(self, f) for f in self.TIMING_FIELDS)
+        status_changed = old.status != self.status
+        if not (timing_changed or status_changed):
+            return
+        if payroll_finalized_for(old.date):
+            raise ValidationError("Payroll for this session's month is finalized; the session cannot be changed.")
+        if not timing_changed:
+            return
+        if payroll_finalized_for(self.date):
+            raise ValidationError("Payroll for the new month is finalized; the session cannot be moved there.")
+        if old.status == self.Status.CANCELLED:
+            raise ValidationError("A cancelled session cannot be rescheduled; reinstate it first.")
+        if old.has_started():
+            raise ValidationError("A session that has started cannot be rescheduled or moved to another class.")
+        if self.has_started():
+            raise ValidationError("A session cannot be moved into the past.")
+        if old.has_history():
+            raise ValidationError("This session already has attendance, substitute or payroll records; "
+                                  "cancel it and create a new session instead.")
+
+    def _resync_regular_coaches(self):
+        """After a (history-free, future) session moves to another class or date,
+        its regular coaches are the new class's coaches on the new date."""
+        self.coach_slots.filter(role=SessionCoach.Role.REGULAR).delete()
+        for assignment in ClassCoach.objects.active_on(self.date).filter(training_class=self.training_class):
+            SessionCoach.objects.create(session=self, coach=assignment.coach)
 
     def roster(self):
         """Students who were members of the class on the session date."""
@@ -574,6 +670,9 @@ class SessionCoach(AuditedModel):
         """Model-level guard; the same rules are enforced by a PostgreSQL trigger."""
         if old.role != self.role:
             raise ValidationError("A coach slot cannot change between regular and substitute.")
+        if (old.session_id, old.coach_id) != (self.session_id, self.coach_id):
+            raise ValidationError("A coach slot cannot be moved to another coach or session; "
+                                  "use the regular coach reassignment instead.")
         if old.role != self.Role.SUBSTITUTE:
             return
         if any(getattr(old, f) != getattr(self, f) for f in self.SUBSTITUTE_FROZEN):
@@ -587,6 +686,8 @@ class SessionCoach(AuditedModel):
     def delete(self, *args, **kwargs):
         if self.is_substitute:
             raise PermissionDenied("Substitute authorizations are history and cannot be deleted; revoke them instead.")
+        if self.session.has_started():
+            raise PermissionDenied("The regular coaches of a session that has started are history.")
         return super().delete(*args, **kwargs)
 
     @classmethod

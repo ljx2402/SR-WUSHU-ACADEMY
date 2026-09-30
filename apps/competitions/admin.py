@@ -26,9 +26,37 @@ class CompetitionEventAdmin(admin.ModelAdmin):
     search_fields = ("name", "competition__name")
 
 
+class ResultForm(forms.ModelForm):
+    """Results only for confirmed (paid) registrations; the registration of an
+    existing result is fixed. The model enforces the same rule on save."""
+
+    class Meta:
+        model = CompetitionResult
+        fields = ["registration", "placing", "medal", "score", "remarks"]
+
+    def clean(self):
+        data = super().clean()
+        registration = data.get("registration") or getattr(self.instance, "registration", None)
+        if self.instance.pk and data.get("registration") and data["registration"].pk != self.instance.registration_id:
+            raise ValidationError("A result cannot be moved to another registration.")
+        if registration is not None and registration.status != CompetitionRegistration.Status.CONFIRMED:
+            raise ValidationError(f"Results can only be recorded for a confirmed (paid) registration; this "
+                                  f"registration is {registration.get_status_display().lower()}.")
+        return data
+
+
 class ResultInline(admin.StackedInline):
     model = CompetitionResult
+    form = ResultForm
     extra = 0
+    can_delete = False
+    fields = ["placing", "medal", "score", "remarks"]
+
+    def get_max_num(self, request, obj=None, **kwargs):
+        # The result form appears only for a confirmed registration (or to show an existing result).
+        if obj is None or (obj.status != CompetitionRegistration.Status.CONFIRMED and not hasattr(obj, "result")):
+            return 0
+        return 1
 
 
 class RegistrationForm(forms.ModelForm):
@@ -92,7 +120,15 @@ class CompetitionRegistrationAdmin(admin.ModelAdmin):
 
 @admin.register(CompetitionResult)
 class CompetitionResultAdmin(admin.ModelAdmin):
+    form = ResultForm
     list_display = ("registration", "placing", "medal", "score")
     list_filter = ("medal", "registration__event__competition")
     search_fields = ("registration__student__full_name",)
     raw_id_fields = ("registration",)
+    actions = None
+
+    def get_readonly_fields(self, request, obj=None):
+        return ("registration",) if obj is not None else ()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

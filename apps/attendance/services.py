@@ -5,6 +5,8 @@
 * An expected student without a record (or with an UNMARKED record) is
   **UNMARKED**. It is never treated as Absent and is left out of the
   attendance percentage; it is reported separately.
+* Nothing can be recorded before the session **starts** (from the start time,
+  inclusive, in the academy time zone), by anyone.
 * Coaches (the class's regular coaches, or the session's authorized
   substitute inside their access window) may record and change attendance
   until **48 hours after the session ends** (academy time zone).
@@ -33,6 +35,7 @@ from .models import MARKED_STATUSES, AttendanceRecord, AttendanceStatus
 
 
 class SessionState:
+    NOT_STARTED = "NOT_STARTED"  # before the session start: nothing can be recorded yet
     OPEN = "OPEN"            # coaches may still record; some expected students are unmarked
     COMPLETE = "COMPLETE"    # every expected student is marked; coaches may still correct
     LOCKED = "LOCKED"        # coach edit window closed: administrator corrections only
@@ -88,6 +91,10 @@ def record_session_attendance(session, entries, actor, reason=""):
             raise PermissionDenied("You are not allowed to take attendance for this session.")
         raise ValidationError("Attendance cannot be taken for a cancelled session.")
     correction = _authorize_write(session, actor, reason, now)
+    if now < session.starts_at:
+        raise ValidationError(
+            f"Attendance can be recorded from the session start "
+            f"({timezone.localtime(session.starts_at):%Y-%m-%d %H:%M}), not before.")
 
     roster = {student.id: student for student in session.roster()}
     wanted = []
@@ -219,6 +226,8 @@ def session_summary(session):
 def session_state(session, summary=None, at=None):
     if session.status == TrainingSession.Status.CANCELLED:
         return SessionState.CANCELLED
+    if (at or timezone.now()) < session.starts_at:
+        return SessionState.NOT_STARTED
     if not coach_window_open(session, at):
         return SessionState.LOCKED
     summary = summary or session_summary(session)

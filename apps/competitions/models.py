@@ -152,7 +152,26 @@ class CompetitionRegistration(AuditedModel):
         raise PermissionDenied("Competition registrations cannot be deleted; withdraw or reject them instead.")
 
 
+class ResultQuerySet(models.QuerySet):
+    """Bulk writes would skip the confirmed-registration rule."""
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Competition results are recorded one at a time through the results service.")
+
+    def bulk_create(self, *args, **kwargs):
+        raise PermissionDenied("Competition results are recorded one at a time through the results service.")
+
+    def bulk_update(self, *args, **kwargs):
+        raise PermissionDenied("Competition results are recorded one at a time through the results service.")
+
+    def delete(self):
+        raise PermissionDenied("Competition results are history and cannot be deleted.")
+
+
 class CompetitionResult(AuditedModel):
+    """A result for one CONFIRMED (paid) registration. Enforced here, in the
+    results service, the API and admin forms, and by a PostgreSQL trigger."""
+
     audit_category = AuditCategory.COMPETITION
 
     class Medal(models.TextChoices):
@@ -168,8 +187,28 @@ class CompetitionResult(AuditedModel):
     remarks = models.CharField(max_length=255, blank=True)
     recorded_at = models.DateTimeField(auto_now=True)
 
+    objects = ResultQuerySet.as_manager()
+
     class Meta:
         ordering = ["registration__event", "placing"]
 
     def __str__(self):
         return f"{self.registration}: {self.get_medal_display()}"
+
+    def clean(self):
+        if self.pk is not None:
+            old = CompetitionResult.objects.filter(pk=self.pk).values_list("registration_id", flat=True).first()
+            if old is not None and old != self.registration_id:
+                raise ValidationError("A result cannot be moved to another registration.")
+        registration = CompetitionRegistration.objects.filter(pk=self.registration_id).first()
+        if registration is None or registration.status != CompetitionRegistration.Status.CONFIRMED:
+            status = registration.get_status_display().lower() if registration else "missing"
+            raise ValidationError(f"Results can only be recorded for a confirmed (paid) registration; "
+                                  f"this registration is {status}.")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Competition results are history and cannot be deleted.")

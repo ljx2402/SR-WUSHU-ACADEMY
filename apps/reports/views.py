@@ -23,6 +23,7 @@ REPORT_CAPABILITIES = {
     "invoices": Cap.REPORTS_FINANCE,
     "refunds": Cap.REPORTS_FINANCE,
     "payroll": Cap.REPORTS_PAYROLL,
+    "payroll_lines": Cap.REPORTS_PAYROLL,
 }
 assert set(REPORT_CAPABILITIES) == set(REPORTS), "every report needs a capability"
 

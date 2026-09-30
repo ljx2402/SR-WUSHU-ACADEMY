@@ -19,7 +19,7 @@ from apps.attendance.models import AttendanceRecord, AttendanceStatus
 from apps.audit.models import AuditLog
 from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
 from apps.finance.models import Charge, FeeType, Invoice, InvoiceItem, Payment, PaymentAllocation, Receipt, Refund
-from apps.payroll.models import Payslip, PayslipLine
+from apps.payroll.models import PayrollRun, Payslip, PayslipLine
 
 
 class ParentSerializer(serializers.ModelSerializer):
@@ -179,11 +179,33 @@ class SessionCoachSerializer(serializers.ModelSerializer):
 class TrainingSessionSerializer(serializers.ModelSerializer):
     class_name = serializers.CharField(source="training_class.name", read_only=True)
     coaches = SessionCoachSerializer(source="coach_slots", many=True, read_only=True)
+    phase = serializers.SerializerMethodField()
+
+    TIMING = ("training_class", "date", "start_time", "end_time")
 
     class Meta:
         model = TrainingSession
-        fields = ["id", "training_class", "class_name", "date", "start_time", "end_time", "venue", "status", "notes",
-                  "coaches"]
+        fields = ["id", "training_class", "class_name", "date", "start_time", "end_time", "venue", "status", "phase",
+                  "notes", "coaches"]
+
+    def get_phase(self, obj):
+        return obj.phase()
+
+    def validate(self, attrs):
+        if self.instance is not None:
+            changed = [f for f in self.TIMING if f in attrs and attrs[f] != getattr(self.instance, f)]
+            if changed:
+                raise serializers.ValidationError(
+                    {f: "Use the reschedule action (reason required) to change this." for f in changed})
+        return attrs
+
+
+class RescheduleSerializer(serializers.Serializer):
+    date = serializers.DateField(required=False)
+    start_time = serializers.TimeField(required=False)
+    end_time = serializers.TimeField(required=False)
+    training_class = serializers.PrimaryKeyRelatedField(queryset=TrainingClass.objects.all(), required=False)
+    reason = serializers.CharField(max_length=255)
 
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
@@ -389,6 +411,11 @@ class CompetitionResultSerializer(serializers.ModelSerializer):
         model = CompetitionResult
         fields = ["id", "registration", "student_name", "event_name", "placing", "medal", "score", "remarks"]
 
+    def validate(self, attrs):
+        if self.instance is not None and "registration" in attrs and attrs["registration"] != self.instance.registration:
+            raise serializers.ValidationError({"registration": "A result cannot be moved to another registration."})
+        return attrs
+
 
 class CompetitionRegistrationSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.full_name", read_only=True)
@@ -414,9 +441,23 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
 
 
 class PayslipLineSerializer(serializers.ModelSerializer):
+    original_coach = serializers.CharField(source="slot.replaces.full_name", read_only=True, default=None)
+
     class Meta:
         model = PayslipLine
-        fields = ["kind", "description", "session", "quantity", "rate", "amount"]
+        fields = ["kind", "description", "session", "slot", "original_coach", "rate", "rule", "issue", "amount"]
+
+
+class PayrollRunSerializer(serializers.ModelSerializer):
+    issue_count = serializers.IntegerField(read_only=True)
+    period_start = serializers.DateField(read_only=True)
+    period_end = serializers.DateField(read_only=True)
+
+    class Meta:
+        model = PayrollRun
+        fields = ["id", "year", "month", "period_start", "period_end", "status", "issue_count", "calculated_at",
+                  "finalized_at", "excluded", "notes"]
+        read_only_fields = fields
 
 
 class PayslipSerializer(serializers.ModelSerializer):

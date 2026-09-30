@@ -8,7 +8,7 @@ from django.utils import timezone
 from apps.accounts.capabilities import Cap, require
 from apps.audit.context import audit_context
 
-from .models import ClassCoach, Enrollment, SessionCoach, Student, TrainingSession
+from .models import ClassCoach, Enrollment, SessionCoach, Student, TrainingSession, payroll_finalized_for
 
 
 def daterange(start, end):
@@ -30,6 +30,8 @@ def generate_sessions(training_class, start, end, actor=None):
     schedules = list(training_class.schedules.all())
     with audit_context(actor, "Generated from class timetable"):
         for day in daterange(start, end):
+            if payroll_finalized_for(day):
+                continue  # a finalized payroll month is closed history
             for slot in schedules:
                 if not slot.applies_on(day):
                     continue
@@ -73,8 +75,8 @@ def assign_substitute(session, substitute, replaces=None, actor=None, reason="",
     session = TrainingSession.objects.select_for_update().get(pk=session.pk)
     if session.status == TrainingSession.Status.CANCELLED:
         raise ValidationError("Cannot assign a substitute to a cancelled session.")
-    if session.status != TrainingSession.Status.SCHEDULED:
-        raise ValidationError("A substitute can only be authorized for a scheduled session.")
+    if session.phase() == TrainingSession.Phase.COMPLETED:
+        raise ValidationError("A substitute can only be authorized for a session that has not ended.")
     if replaces is not None and replaces == substitute:
         raise ValidationError("A coach cannot substitute for themselves.")
     if not substitute.is_active:
@@ -135,6 +137,8 @@ def revoke_substitute(slot, actor=None, reason=""):
         raise ValidationError("Only substitute authorizations can be revoked.")
     if slot.status != SessionCoach.Status.ASSIGNED:
         raise ValidationError(f"This substitute authorization was already {slot.status.lower()}.")
+    if payroll_finalized_for(slot.session.date):
+        raise ValidationError("Payroll for this session's month is finalized; the substitution is paid history.")
     with audit_context(actor, reason):
         slot.status = SessionCoach.Status.REVOKED
         slot.revoked_at = timezone.now()
@@ -143,6 +147,104 @@ def revoke_substitute(slot, actor=None, reason=""):
         slot.save()
         slot.restore_replaced_coach()
     return slot
+
+
+def _require_reason(reason, what):
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError(f"A reason is required to {what}.")
+    return reason
+
+
+def _locked_session(session):
+    return TrainingSession.objects.select_for_update().get(pk=session.pk)
+
+
+@transaction.atomic
+def cancel_session(session, actor, reason):
+    """Cancel a session. Its active substitute becomes CANCELLED (access stops),
+    attendance is kept but no longer counted and no more can be recorded, and
+    payroll does not pay a cancelled session. Nothing is deleted."""
+    require(actor, Cap.SESSIONS_MANAGE)
+    reason = _require_reason(reason, "cancel a session")
+    session = _locked_session(session)
+    if session.status == TrainingSession.Status.CANCELLED:
+        raise ValidationError("This session is already cancelled.")
+    with audit_context(actor, f"Session cancelled: {reason}"):
+        session.status = TrainingSession.Status.CANCELLED
+        session.save()
+    return session
+
+
+@transaction.atomic
+def reinstate_session(session, actor, reason):
+    """Undo a cancellation. Cancelled substitute authorizations stay cancelled;
+    authorize a substitute again if one is still needed."""
+    require(actor, Cap.SESSIONS_MANAGE)
+    reason = _require_reason(reason, "reinstate a session")
+    session = _locked_session(session)
+    if session.status != TrainingSession.Status.CANCELLED:
+        raise ValidationError("Only a cancelled session can be reinstated.")
+    with audit_context(actor, f"Session reinstated: {reason}"):
+        session.status = TrainingSession.Status.SCHEDULED
+        session.save()
+    return session
+
+
+@transaction.atomic
+def reschedule_session(session, actor, reason, date=None, start_time=None, end_time=None, training_class=None):
+    """Move an upcoming session to another date/time and/or class.
+
+    Allowed only before the session starts, never into the past, never for a
+    session with attendance, substitute history or payroll lines, and never
+    into or out of a finalized payroll month (enforced by the model). Moving to
+    another class or date re-derives the regular coaches."""
+    require(actor, Cap.SESSIONS_MANAGE)
+    reason = _require_reason(reason, "reschedule a session")
+    session = _locked_session(session)
+    changes = {"date": date, "start_time": start_time, "end_time": end_time, "training_class": training_class}
+    changes = {k: v for k, v in changes.items() if v is not None}
+    if not changes:
+        raise ValidationError("Nothing to change.")
+    with audit_context(actor, f"Session rescheduled: {reason}"):
+        for field, value in changes.items():
+            setattr(session, field, value)
+        try:
+            with transaction.atomic():
+                session.save()
+        except IntegrityError:
+            raise ValidationError("The class already has a session at that date and time.") from None
+    return session
+
+
+@transaction.atomic
+def reassign_regular_coach(session, from_coach, to_coach, actor, reason):
+    """Replace a regular coach of an upcoming session (e.g. a timetable change).
+
+    Only before the session starts, and only while the original coach's slot
+    is still ASSIGNED (not replaced by a substitute). For an absence on the
+    day, authorize a substitute instead: that keeps the original coach's
+    identity for history and payroll."""
+    require(actor, Cap.SESSIONS_MANAGE)
+    reason = _require_reason(reason, "reassign a session's coach")
+    session = _locked_session(session)
+    if session.status == TrainingSession.Status.CANCELLED:
+        raise ValidationError("The session is cancelled.")
+    if session.has_started():
+        raise ValidationError("The session has started; its coaches are history. Use a substitute authorization.")
+    if payroll_finalized_for(session.date):
+        raise ValidationError("Payroll for this session's month is finalized.")
+    slot = session.coach_slots.filter(coach=from_coach, role=SessionCoach.Role.REGULAR).first()
+    if slot is None or slot.status != SessionCoach.Status.ASSIGNED:
+        raise ValidationError(f"{from_coach} is not a regular coach currently assigned to this session.")
+    if session.coach_slots.exclude(status__in=SessionCoach.ENDED).filter(coach=to_coach).exists():
+        raise ValidationError(f"{to_coach} already coaches this session.")
+    if not to_coach.is_active:
+        raise ValidationError(f"{to_coach} is not an active coach.")
+    with audit_context(actor, f"Regular coach reassigned: {reason}"):
+        slot.delete()
+        new_slot = SessionCoach.objects.create(session=session, coach=to_coach, assigned_by=actor, reason=reason)
+    return new_slot
 
 
 @transaction.atomic

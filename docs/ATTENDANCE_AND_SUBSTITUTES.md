@@ -26,7 +26,7 @@ ASSIGNED ──revoke_substitute (reason required)──▶ REVOKED    (final)
 * **Authorize** (`academy.services.assign_substitute`; API `POST /api/sessions/{id}/assign-substitute/`;
   admin session page → "Assign substitute coach"). Needs `substitute.assign` (ADMIN, SUPER_ADMIN).
   It is refused when:
-  * the session is cancelled or completed, or its substitute access window has already ended;
+  * the session is cancelled or has already ended (Phase 4; see `SESSION_LIFECYCLE.md`);
   * the session already has an active substitute (**one active substitute per session**), including
     the same coach twice;
   * the coach already coaches the session, or is inactive;
@@ -141,10 +141,15 @@ of coached classes and the authorized session) are combined without widening eac
 
 ## Payroll
 
-Payroll is unchanged. It pays slots with status `ASSIGNED` on sessions that were not cancelled, so:
-* an active substitute is paid;
-* the replaced coach is not;
-* after a revocation or cancellation the original coach is paid again (unless the session was
-  cancelled).
+Since Phase 4 the substitute authorization is the payroll source of truth (`PAYROLL.md`):
+* an active (`ASSIGNED`) substitute is paid their substitute per-session rate;
+* the replaced coach (`REPLACED`) is not paid for that session;
+* a revoked or cancelled authorization is not paid, and the original coach is paid again unless
+  the session was cancelled;
+* each paid line keeps the substitute, the original coach, the session, the rate, the rule and the
+  amount.
 
-Each substitution keeps its original coach, substitute, session and period for future payroll work.
+## Phase 4 timing changes
+
+* Attendance can be recorded only from the session start (inclusive), never before, by anyone.
+* A substitute can be authorized only before the session ends.

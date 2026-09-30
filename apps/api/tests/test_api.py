@@ -1,10 +1,11 @@
 import datetime
 from decimal import Decimal
+from unittest import mock
 
 from rest_framework.test import APIClient
 
 from apps.academy.services import assign_substitute
-from apps.academy.tests.base import AcademyTestCase
+from apps.academy.tests.base import AcademyTestCase, academy_time
 from apps.competitions.models import Competition, CompetitionEvent
 from apps.finance.models import Receipt
 from apps.finance.services import add_charge, record_payment
@@ -127,14 +128,20 @@ class CoachApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_coach_sees_only_own_finalized_payslips(self):
-        CoachRate.objects.create(coach=self.coach_a, rate_type="HOURLY", amount=Decimal("40"),
+        # Phase 4: coaches are paid per session (no hourly/monthly pay), and a
+        # payroll month can be finalized only after it has ended.
+        CoachRate.objects.create(coach=self.coach_a, rate_type="PER_SESSION", amount=Decimal("80"),
                                  effective_from=self.today - datetime.timedelta(days=30))
-        CoachRate.objects.create(coach=self.coach_b, rate_type="HOURLY", amount=Decimal("40"),
+        CoachRate.objects.create(coach=self.coach_b, rate_type="PER_SESSION", amount=Decimal("80"),
                                  effective_from=self.today - datetime.timedelta(days=30))
-        run = calculate_run(self.today.year, self.today.month, self.finance_user)
+        next_month = (self.today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        after_month = academy_time(next_month, 9)
+        with mock.patch("django.utils.timezone.now", return_value=after_month):
+            run = calculate_run(self.today.year, self.today.month, self.finance_user)
         client = self.client_for(self.coach_a_user)
         self.assertEqual(self.ids(client.get("/api/payslips/")), set())
-        finalize_run(run, self.super_user)
+        with mock.patch("django.utils.timezone.now", return_value=after_month):
+            finalize_run(run, self.super_user)
         mine = run.payslips.get(coach=self.coach_a)
         self.assertEqual(self.ids(client.get("/api/payslips/")), {mine.id})
 

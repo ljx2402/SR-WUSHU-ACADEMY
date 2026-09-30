@@ -1,4 +1,6 @@
 import datetime
+import itertools
+from unittest import mock
 
 from django.test import TestCase
 from django.utils import timezone
@@ -17,8 +19,42 @@ def make_user(username, *roles):
     return user
 
 
+def academy_time(date, hour, minute=0):
+    return timezone.make_aware(datetime.datetime.combine(date, datetime.time(hour, minute)),
+                               timezone.get_default_timezone())
+
+
 class AcademyTestCase(TestCase):
-    """Two classes, two coaches, two families, one session per class today."""
+    """Two classes, two coaches, two families, one session per class today.
+
+    The clock starts at 20:00 today (academy time) so results never depend on
+    when the suite runs: session A (17:00-19:00) has ended and session B
+    (19:00-21:00) is in progress. Tests that need another moment patch
+    ``django.utils.timezone.now`` themselves.
+    """
+
+    CLOCK_HOUR = 20
+
+    @classmethod
+    def setUpClass(cls):
+        cls.clock = academy_time(timezone.localdate(), cls.CLOCK_HOUR)
+        ticks = itertools.count()
+        # Advances one microsecond per call, like a real clock, but deterministically.
+        cls._clock_patch = mock.patch("django.utils.timezone.now",
+                                      side_effect=lambda: cls.clock + datetime.timedelta(microseconds=next(ticks)))
+        cls._clock_patch.start()
+        try:
+            super().setUpClass()
+        except Exception:
+            cls._clock_patch.stop()
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            super().tearDownClass()
+        finally:
+            cls._clock_patch.stop()
 
     @classmethod
     def setUpTestData(cls):
