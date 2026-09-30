@@ -202,6 +202,7 @@ apps/api/          REST API used by the web app
 frontend/          web app (React + TypeScript + Vite), see docs/FRONTEND.md
 docs/FEES_GUIDE.md step-by-step guide for keying in fees, invoicing and payments
 docs/FINANCE_ARCHITECTURE.md    charges → invoices → payments → receipts, families, locking
+docs/PAYMENT_PROOFS.md          parents' payment proofs (upload, staff review) vs official receipts
 docs/ROLES_AND_PERMISSIONS.md   roles, capability matrix, role changes, migration
 docs/BUSINESS_DECISIONS.md      approved business rules for later phases
 docs/FRONTEND.md                web app architecture, development, build and serving
@@ -212,6 +213,7 @@ docker-compose.yml local PostgreSQL 16
 ## Not included yet
 
 * The staff, coach and student portal screens of the web app (Phase 6C onwards).
-* Online payment gateway (FPX/DuitNow) integration: payments are recorded by staff.
+* Online payment gateway (FPX/DuitNow) integration: parents pay manually and upload payment
+  proof; staff review it and record the payment (see docs/PAYMENT_PROOFS.md).
 * SST/e-Invoice (LHDN MyInvois) submission.
 * Notifications (WhatsApp/SMS/email reminders for fees or competitions).

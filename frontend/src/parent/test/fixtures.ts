@@ -179,6 +179,16 @@ export const registrations: CompetitionRegistration[] = [
     fee: "60.00", fee_status: "PAID", invoice: null, result: null },
 ];
 
+/** 1×1 PNG as the backend returns it (data: URI). */
+export const QR = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+export const paymentInfo = {
+  configured: true, bank_name: "Maybank", account_name: "SR Wushu Academy", account_number: "5140 1234 5678",
+  instructions: "Transfer the amount due, then upload your proof.",
+  reference_instructions: "Use the invoice number as the payment reference.", qr_code: QR,
+  updated_at: "2026-09-01T10:00:00+08:00",
+};
+
 type Req = { url: URL; body: unknown };
 
 /** The API as Parent A sees it. Anything else (e.g. Family B's ids) is a 404. */
@@ -202,6 +212,8 @@ export function parentRoutes(overrides: Record<string, unknown> = {}) {
     "GET /api/payments/": json(page([payment])),
     "GET /api/receipts/": json(page([receipt])),
     "GET /api/receipts/701/": json(receipt),
+    "GET /api/payment-info/": json(paymentInfo),
+    "GET /api/payment-proofs/": json(page([])),
     "GET /api/competitions/": json(page([openCompetition, closedCompetition])),
     "GET /api/competitions/81/": json(openCompetition),
     "GET /api/competitions/82/": json(closedCompetition),

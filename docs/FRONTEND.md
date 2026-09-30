@@ -266,6 +266,7 @@ too (e.g. coach and parent) keeps the general dashboard and has the parent secti
 | `/parent/finance/invoices` | Invoice list with filters | `finance.view_own_children` |
 | `/parent/finance/invoices/:invoiceId` | Invoice detail (printable) | `finance.view_own_children` |
 | `/parent/finance/payments` | Payment history | `finance.view_own_children` |
+| `/parent/finance/proofs` | Payment proofs uploaded by the family | `finance.view_own_children` |
 | `/parent/finance/receipts` | Receipts | `finance.view_own_children` |
 | `/parent/finance/receipts/:receiptId` | Receipt as issued (printable) | `finance.view_own_children` |
 | `/parent/competitions` | Competitions and the children's entries | `competition.registrations.view_own_children` or `competition.register_own_children` |
@@ -293,8 +294,11 @@ their section) in `src/nav/navigation.ts`; `src/app/App.tsx` maps them to page c
 | Entries | `GET /api/competition-registrations/?competition=` | `CompetitionRegistrationSerializer` | `competition.registrations.view_own_children` | own children |
 | Register | `POST /api/competition-registrations/` `{student, event, notes}` | same | `competition.register_own_children` | own children only (403 otherwise) |
 | Withdraw | `POST /api/competition-registrations/:id/withdraw/` `{reason}` | same | `competition.register_own_children` | own children only (404 otherwise) |
+| Payment information | `GET /api/payment-info/` | `AcademyPaymentInfoSerializer` | `finance.view_own_children` | academy-wide, read-only for parents |
+| Payment proofs | `GET/POST /api/payment-proofs/`, `GET /api/payment-proofs/:id/file/` | `PaymentProofSerializer` | `finance.view_own_children` / `finance.proofs.upload_own` | own families' invoices only (404 otherwise) |
 
-No new endpoint was needed. Lists use the backend's pagination ("Show more" loads the next
+Phase 6B needed no new endpoint; the payment-proof correction added `payment-info` and
+`payment-proofs`. Lists use the backend's pagination ("Show more" loads the next
 page); bounded ranges (a week of sessions, a family's payments for an invoice) follow `next`
 up to a fixed number of pages. Query keys start with `"parent"` (`src/parent/queries.ts`);
 student details are cached per child and shared between pages.
@@ -326,11 +330,23 @@ ignored by the selector and refused by the API (404, shown as "Record not found.
 
 ### Finance
 
-Read-only. Invoices list each line under its child (per-child subtotals are added exactly in
+Read-only except for uploading payment proof. Invoices list each line under its child (per-child subtotals are added exactly in
 integer cents; totals, paid, balance due and refunds are the backend's figures). A void invoice
 shows its reason and nothing due. Payments show what they were applied to and link to the
-receipt. There is no online payment: the pages say payments are made at the academy office and
-recorded by the academy. There is no refund action.
+receipt. There is no refund action.
+
+**Paying (no online gateway; see `docs/PAYMENT_PROOFS.md`).** An open invoice shows the amount
+due, the academy's payment information from `GET /api/payment-info/` (bank, account name,
+account number with a Copy button, the invoice number as payment reference, instructions and
+the QR code, delivered as a `data:` image so it works under the CSP), then an "Upload payment
+proof" form (`POST /api/payment-proofs/`, multipart: file, payment date, amount paid, bank
+reference, note; type and size are checked in the browser and again by the backend). After
+upload the page says the proof "has been submitted and is waiting for academy verification"
+and lists it as **Pending review**; rejected proofs show the staff's reason. The invoice's own
+status only changes when the academy records the payment, which also issues the official
+receipt; nothing in the app marks anything as paid. Proof files download through the API
+(blob download, never a public URL). The "Payment proofs" tab lists the family's proofs.
+Accounts without `finance.proofs.upload_own` see the payment information but no upload form.
 
 ### Receipts
 
@@ -340,7 +356,7 @@ used by the app. `GET /api/receipts/:id/` already returns the receipt **exactly 
 that content as a printable page (`window.print()` with a print stylesheet). No credentials
 other than the parent's own token are used.
 
-### Competition registration flow (the backend's)
+### Competition registration flow (the backend's, with payment proof)
 
 1. Choose a child and an event (competitions that are open and allow parent registration).
 2. Confirm in a dialog that states the fee, that an invoice is issued due today, and that fees
@@ -349,8 +365,11 @@ other than the parent's own token are used.
    gender), duplicates, capacity and the per-child event limit, creates the entry as
    **PENDING ("Awaiting payment")** and issues a competition invoice. Its error messages are
    shown as returned; the app has no eligibility logic of its own.
-4. The page shows the status and the invoice. The academy records the payment; the entry then
-   becomes **CONFIRMED** automatically. The app never shows a payment as made.
+4. The page shows the status and the invoice, with "Pay and upload proof" linking to it. The
+   parent pays manually and uploads payment proof there (Pending review). Staff review it and
+   record the payment; when the invoice is paid in full the entry becomes **CONFIRMED**
+   automatically. A proof alone, even accepted, never confirms the entry; a rejected proof
+   leaves it awaiting payment. The app never shows a payment as made.
 5. Withdrawal (while registration is open): unpaid, the invoice is voided; paid, nothing is
    refunded (the dialog says so). Exceptional refunds are staff-only.
 
@@ -421,7 +440,9 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 * Parent Portal API gaps (documented, not worked around):
   * attendance history lists recorded marks only; sessions not yet marked are counted in the
     summary ("Not marked") but the API has no per-session list of them for parents;
-  * there is no online payment gateway: parents see what is due and pay at the academy;
+  * there is no online payment gateway: parents pay manually and upload payment proof, which
+    staff review before recording the payment (`docs/PAYMENT_PROOFS.md`); the staff review
+    screens come with Phase 6F (API and Django admin list/download exist now);
   * the withdraw response carries the charge status from before the withdrawal; the portal
     refetches afterwards, so the page is correct;
   * attendance `remarks` and `recorded_by_name` are returned to parents by the API but not

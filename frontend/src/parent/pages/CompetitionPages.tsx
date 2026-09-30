@@ -280,8 +280,10 @@ export function CompetitionRegisterPage() {
             <>
               <p>Invoice <Link to={`/parent/finance/invoices/${r.invoice.id}`}>{r.invoice.number}</Link> has been issued
                 with <Money value={r.invoice.balance_due} /> due today.</p>
-              <p>The entry is confirmed automatically once the invoice is paid in full. Please pay at the academy
-                office; the app does not take payments.</p>
+              <p>Pay the academy using the details on the invoice, then upload your proof of payment there. The
+                academy checks it and records the payment; the entry is confirmed automatically once the invoice is
+                paid in full. The app does not take payments itself.</p>
+              <p><Link className="btn btn-primary" to={`/parent/finance/invoices/${r.invoice.id}`}>Pay and upload proof</Link></p>
             </>
           ) : r.status === "CONFIRMED" ? <p>This event has no fee, so the entry is confirmed.</p> : null}
         </Alert>
@@ -347,9 +349,9 @@ export function CompetitionRegisterPage() {
                      errors={errors.notes} onChange={(e) => setNotes(e.target.value)} />
 
           <Alert tone="info" title="Payment is required to confirm the entry">
-            <p>Registering issues a competition invoice for the event fee, due today. The entry stays “Awaiting
-              payment” until the invoice is paid in full at the academy, and is then confirmed automatically.
-              Competition fees are generally non-refundable.</p>
+            <p>Registering issues a competition invoice for the event fee, due today. Pay the academy, then upload
+              your proof of payment on the invoice. The entry stays “Awaiting payment” until the academy has recorded
+              full payment, and is then confirmed automatically. Competition fees are generally non-refundable.</p>
           </Alert>
           <Button type="submit" busy={register.isPending}>Review and register</Button>
         </form>

@@ -19,6 +19,8 @@ tested in the production environment** (production blocker P3 in `SECURITY.md`).
 | Restore testing | Monthly: restore the latest backup into a scratch database, run the checks below, record the result and the time taken |
 | Access | Only named administrators can read backups; every restore is logged |
 
+| Uploaded files | `PRIVATE_MEDIA_ROOT` (payment proofs, payment QR) is not in the database dump: back it up with the same schedule, encryption and access rules (e.g. `restic`/`rsync` to encrypted off-site storage), and restore it together with the database |
+
 ## Procedure
 
 **Backup** (as a role that can read every table, e.g. `sr_owner`):

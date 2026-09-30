@@ -1,6 +1,7 @@
 import type { ApiClient } from "./client";
 import type { QueryValue } from "./client";
 import type {
+  AcademyPaymentInfo, PaymentProof,
   AttendanceRecord, AttendanceSummaryResponse, Charge, Competition, CompetitionRegistration, Family, Invoice, Me,
   OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, TokenResponse, TrainingSession,
 } from "./types";
@@ -78,6 +79,16 @@ export function endpoints(api: ApiClient) {
     /** Creates a PENDING registration and an issued competition invoice (paid at the academy). */
     register: (body: { student: number; event: number; notes?: string }) =>
       api.post<CompetitionRegistration>("/api/competition-registrations/", body),
+    /** The academy's bank details, QR code and instructions. */
+    paymentInfo: (signal?: AbortSignal) => api.get<AcademyPaymentInfo>("/api/payment-info/", undefined, signal),
+    paymentProofs: (query: { invoice?: number; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<PaymentProof>>("/api/payment-proofs/", query, signal),
+    /** Multipart upload; the backend checks the invoice is the family's own and open. */
+    uploadPaymentProof: (form: FormData) =>
+      api.request<PaymentProof>("/api/payment-proofs/", { method: "POST", body: form, timeoutMs: 60_000 }),
+    /** The uploaded file (permission-checked download). */
+    paymentProofFile: (id: number) =>
+      api.request<Blob>(`/api/payment-proofs/${id}/file/`, { responseType: "blob", timeoutMs: 60_000 }),
     /** Parent withdrawal while registration is open. Paid fees are not refunded. */
     withdraw: (id: number, reason: string) =>
       api.post<CompetitionRegistration>(`/api/competition-registrations/${id}/withdraw/`, { reason }),

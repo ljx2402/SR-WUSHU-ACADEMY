@@ -638,3 +638,136 @@ class Refund(AuditedModel):
 
     def delete(self, *args, **kwargs):
         raise PermissionDenied("Refunds cannot be deleted.")
+
+
+# --------------------------------------------------------------------------- payment proofs
+
+
+def _private_storage():
+    from .uploads import private_storage
+
+    return private_storage()
+
+
+class AcademyPaymentInfo(AuditedModel):
+    """How families pay the academy (one record): the academy's bank account, QR
+    code and instructions, shown to parents on unpaid invoices. Managed by
+    finance (``finance.payment_info.manage``). Unrelated to coach payroll bank
+    details, which live on the coach record."""
+
+    audit_category = AuditCategory.FINANCE
+    audit_exclude = ("updated_at", "qr_code")
+
+    bank_name = models.CharField(max_length=100, blank=True)
+    account_name = models.CharField(max_length=150, blank=True)
+    account_number = models.CharField(max_length=40, blank=True)
+    instructions = models.TextField(blank=True, help_text="How to pay (shown to parents).")
+    reference_instructions = models.CharField(
+        max_length=255, blank=True, default="Use the invoice number as the payment reference.")
+    qr_code = models.FileField(storage=_private_storage, max_length=255, blank=True,
+                               help_text="PNG or JPEG payment QR (e.g. DuitNow).")
+    qr_content_type = models.CharField(max_length=20, blank=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name="+", editable=False)
+
+    class Meta:
+        verbose_name = "academy payment information"
+        verbose_name_plural = "academy payment information"
+
+    def __str__(self):
+        return "Academy payment information"
+
+    @classmethod
+    def current(cls):
+        return cls.objects.order_by("pk").first()
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and AcademyPaymentInfo.objects.exists():
+            raise ValidationError("There is only one academy payment information record; edit it instead.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Clear the fields instead of deleting the payment information.")
+
+    @property
+    def is_configured(self):
+        return bool(self.bank_name and self.account_number) or bool(self.qr_code)
+
+
+class PaymentProof(AuditedModel):
+    """Evidence a parent uploads to say "I have paid this invoice" (a transfer
+    screenshot, bank confirmation, ...). It is NOT a payment and NOT a receipt:
+
+    PENDING_REVIEW → staff ACCEPT (optionally linking the payment they recorded
+    with the normal record-payment operation) or REJECT (reason required).
+    Accepting never records money, changes an invoice or confirms a competition
+    registration; only a recorded Payment does that, through the finance
+    services. Proofs are evidence: never deleted, and only the review fields
+    change, once.
+    """
+
+    audit_category = AuditCategory.FINANCE
+    audit_exclude = ("file", "sha256")
+
+    class Status(models.TextChoices):
+        PENDING_REVIEW = "PENDING_REVIEW", "Pending review"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        REJECTED = "REJECTED", "Rejected"
+
+    LOCKED = ("family_id", "invoice_id", "uploaded_by_id", "uploaded_at", "file", "original_name", "content_type",
+              "size", "sha256", "amount_claimed", "payment_date", "reference", "note")
+
+    family = models.ForeignKey(Family, on_delete=models.PROTECT, related_name="payment_proofs")
+    invoice = models.ForeignKey("Invoice", on_delete=models.PROTECT, related_name="payment_proofs")
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="+", editable=False)
+    uploaded_at = models.DateTimeField(default=timezone.now, editable=False)
+    file = models.FileField(storage=_private_storage, max_length=255, editable=False)
+    original_name = models.CharField(max_length=120, editable=False)
+    content_type = models.CharField(max_length=40, editable=False)
+    size = models.PositiveIntegerField(editable=False)
+    sha256 = models.CharField(max_length=64, editable=False)
+    amount_claimed = models.DecimalField(**money, null=True, blank=True,
+                                         validators=[MinValueValidator(Decimal("0.01"))])
+    payment_date = models.DateField(null=True, blank=True)
+    reference = models.CharField(max_length=100, blank=True)
+    note = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.PENDING_REVIEW, editable=False)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="+", editable=False)
+    reviewed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    review_note = models.TextField(blank=True, editable=False)
+    payment = models.ForeignKey("Payment", null=True, blank=True, on_delete=models.PROTECT,
+                                related_name="payment_proofs", editable=False,
+                                help_text="The payment staff recorded for this proof, if linked.")
+
+    objects = FinancialHistoryQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-uploaded_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status="PENDING_REVIEW", reviewed_at__isnull=True)
+                | Q(status__in=["ACCEPTED", "REJECTED"], reviewed_at__isnull=False),
+                name="proof_review_matches_status"),
+            models.CheckConstraint(condition=~Q(status="REJECTED") | ~Q(review_note=""),
+                                   name="proof_rejection_has_reason"),
+        ]
+
+    def __str__(self):
+        return f"Payment proof for {self.invoice_id} ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            previous = PaymentProof.objects.filter(pk=self.pk).first()
+            if previous is not None:
+                if previous.status != self.Status.PENDING_REVIEW:
+                    raise PermissionDenied("A reviewed payment proof cannot be changed.")
+                changed = [f for f in self.LOCKED if getattr(previous, f) != getattr(self, f)]
+                if changed:
+                    raise PermissionDenied("An uploaded payment proof cannot be changed; upload a new one.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Payment proofs are evidence and cannot be deleted.")

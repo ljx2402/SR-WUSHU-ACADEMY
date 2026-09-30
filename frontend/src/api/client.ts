@@ -21,6 +21,8 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** Sign-in requests must not send (or react to) the stored token. */
   anonymous?: boolean;
+  /** "blob" for file downloads (the response body is returned as a Blob). */
+  responseType?: "json" | "blob";
 }
 
 export interface ApiClientConfig {
@@ -59,7 +61,9 @@ export class ApiClient {
     const headers: Record<string, string> = { Accept: "application/json" };
     const token = options.anonymous ? null : this.getToken();
     if (token) headers.Authorization = `Token ${token}`;
-    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
+    // FormData sets its own multipart Content-Type (with the boundary).
+    if (options.body !== undefined && !isForm) headers["Content-Type"] = "application/json";
 
     const controller = new AbortController();
     let timedOut = false;
@@ -75,7 +79,7 @@ export class ApiClient {
       response = await this.fetchImpl(this.url(path, options.query), {
         method: options.method ?? "GET",
         headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.body === undefined ? undefined : isForm ? (options.body as FormData) : JSON.stringify(options.body),
         signal: controller.signal,
         credentials: "omit", // token auth only: no cookies, so no CSRF exposure
       });
@@ -89,6 +93,7 @@ export class ApiClient {
 
     if (response.ok) {
       if (response.status === 204) return undefined as T;
+      if (options.responseType === "blob") return (await response.blob()) as T;
       const text = await response.text();
       if (!text) return undefined as T;
       try {

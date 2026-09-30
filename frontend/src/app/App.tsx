@@ -15,7 +15,8 @@ import { AttendancePage } from "../parent/pages/AttendancePage";
 import { CompetitionDetailPage, CompetitionRegisterPage, CompetitionsPage } from "../parent/pages/CompetitionPages";
 import { FamilyPage } from "../parent/pages/FamilyPage";
 import {
-  FinanceOverviewPage, InvoiceDetailPage, InvoicesPage, PaymentsPage, ReceiptDetailPage, ReceiptsPage,
+  FinanceOverviewPage, InvoiceDetailPage, InvoicesPage, PaymentProofsPage, PaymentsPage, ReceiptDetailPage,
+  ReceiptsPage,
 } from "../parent/pages/FinancePages";
 import { ParentDashboardPage } from "../parent/pages/ParentDashboardPage";
 import { SchedulePage } from "../parent/pages/SchedulePage";
@@ -38,6 +39,7 @@ const PAGES: Record<string, ReactNode> = {
   "/parent/finance/invoices": <InvoicesPage />,
   "/parent/finance/invoices/:invoiceId": <InvoiceDetailPage />,
   "/parent/finance/payments": <PaymentsPage />,
+  "/parent/finance/proofs": <PaymentProofsPage />,
   "/parent/finance/receipts": <ReceiptsPage />,
   "/parent/finance/receipts/:receiptId": <ReceiptDetailPage />,
   "/parent/competitions/:competitionId": <CompetitionDetailPage />,

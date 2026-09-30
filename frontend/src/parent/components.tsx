@@ -55,6 +55,7 @@ export function FinanceNav() {
     { to: "/parent/finance", label: "Overview", end: true },
     { to: "/parent/finance/invoices", label: "Invoices" },
     { to: "/parent/finance/payments", label: "Payments" },
+    { to: "/parent/finance/proofs", label: "Payment proofs" },
     { to: "/parent/finance/receipts", label: "Receipts" },
   ];
   return (

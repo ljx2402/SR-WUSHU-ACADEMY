@@ -182,7 +182,7 @@ describe("family finance", () => {
     expect(totals).toHaveTextContent("Balance dueRM 250.00");
     const applied = await screen.findByRole("table", { name: "Payments applied to this invoice" });
     expect(within(applied).getAllByRole("link", { name: "RCP-2026-0030" })).toHaveLength(2);
-    expect(screen.getByText(/the app does not take payments|Payments are recorded by the academy/)).toBeInTheDocument();
+    expect(await screen.findByRole("form", { name: "Upload payment proof" })).toBeInTheDocument();
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
     screen.getByRole("button", { name: "Print" }).click();
     expect(print).toHaveBeenCalled();
@@ -290,7 +290,8 @@ describe("competitions", () => {
     expect(posted).toEqual({ student: 11, event: 811, notes: "" });
     expect(screen.getByText("Awaiting payment")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "INV-2026-0031" })).toHaveAttribute("href", "/parent/finance/invoices/306");
-    expect(screen.getByText(/the app does not take payments/)).toBeInTheDocument();
+    expect(screen.getByText(/does not take payments itself/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pay and upload proof" })).toHaveAttribute("href", "/parent/finance/invoices/306");
     expect(screen.queryByText(/payment successful|paid successfully/i)).not.toBeInTheDocument();
   });
 

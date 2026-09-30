@@ -313,3 +313,45 @@ export interface CompetitionRegistration {
   invoice: { id: number; number: string; balance_due: string } | null;
   result: { placing: number | null; medal: string; score: string | null; remarks: string } | null;
 }
+
+/* ------------------------------------------------------------------ payment proofs */
+
+/** GET /api/payment-info/ : how to pay the academy (read-only for parents). */
+export interface AcademyPaymentInfo {
+  configured: boolean;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  instructions: string;
+  reference_instructions: string;
+  /** data: URI of the QR image, or null. */
+  qr_code: string | null;
+  updated_at: string | null;
+}
+
+export type PaymentProofStatus = "PENDING_REVIEW" | "ACCEPTED" | "REJECTED";
+
+/** GET /api/payment-proofs/ : a parent's evidence of a manual payment (not a payment, not a receipt). */
+export interface PaymentProof {
+  id: number;
+  family: number;
+  family_name: string;
+  invoice: number;
+  invoice_number: string;
+  invoice_status: Invoice["status"];
+  invoice_balance_due: string;
+  uploaded_by_name: string | null;
+  uploaded_at: string;
+  original_name: string;
+  content_type: string;
+  size: number;
+  amount_claimed: string | null;
+  payment_date: string | null;
+  reference: string;
+  note: string;
+  status: PaymentProofStatus;
+  reviewed_at: string | null;
+  review_note: string;
+  payment: number | null;
+  payment_number: string | null;
+}

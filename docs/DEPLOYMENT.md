@@ -41,6 +41,9 @@ listing every problem. The secret key itself is never printed.
 | `LOGIN_MAX_FAILURES_PER_USERNAME` / `LOGIN_MAX_FAILURES_PER_IP` / `LOGIN_LOCKOUT_MINUTES` | `5` / `20` / `15` | Brute-force lockout |
 | `API_THROTTLE_ANON` / `API_THROTTLE_USER` / `API_THROTTLE_LOGIN` | `60/min` / `3000/min` / `20/min` | DRF throttles |
 | `DJANGO_LOG_LEVEL` | `INFO` | Log level |
+| `PRIVATE_MEDIA_ROOT` | `<project>/private_media` | Directory for payment proofs and the payment QR. Must be **outside** any web-served path, writable by the app, and backed up |
+| `PRIVATE_STORAGE_BACKEND` | Django `FileSystemStorage` | Storage class for private uploads (a future external store plugs in here) |
+| `PAYMENT_PROOF_MAX_BYTES` / `PAYMENT_QR_MAX_BYTES` | `5242880` / `1048576` | Upload size limits |
 
 ## Runtime architecture (required, not yet provisioned)
 
@@ -63,7 +66,11 @@ Internet ──HTTPS──▶ reverse proxy (TLS, HTTP→HTTPS, static files, re
   `Referrer-Policy`, `frame-ancestors 'none'`). The build has no inline scripts and was
   checked in a browser under the production CSP. See `docs/FRONTEND.md`.
 * **Static files:** `python manage.py collectstatic`, served by the proxy from `STATIC_ROOT`
-  (`staticfiles/`). There are no user uploads.
+  (`staticfiles/`).
+* **Private uploads (payment proofs, payment QR):** stored in `PRIVATE_MEDIA_ROOT` and returned
+  only by permission-checked API views. The proxy must **not** serve that directory. Allow
+  request bodies of at least 6 MB on `/api/payment-proofs/` and `/api/payment-info/`
+  (e.g. nginx `client_max_body_size 6m;`). See `docs/PAYMENT_PROOFS.md`.
 * **Migrations:** run as the owner role before the new code starts
   (`DATABASE_URL=…sr_owner… python manage.py migrate`). The application runs as `sr_app`.
 * **Checks at every deployment:**

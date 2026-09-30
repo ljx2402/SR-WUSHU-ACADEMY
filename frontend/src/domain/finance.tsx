@@ -104,3 +104,12 @@ export const FEE_TYPE_LABELS: Record<string, string> = {
   COMPETITION: "Competition fee",
   OTHER: "Other",
 };
+
+/** Payment proof = the parent's evidence of a manual payment. Never "paid" by itself. */
+export const PROOF_STATUS: StatusMap = {
+  PENDING_REVIEW: { label: "Pending review", tone: "warning" },
+  ACCEPTED: { label: "Checked by the academy", tone: "success" },
+  REJECTED: { label: "Rejected", tone: "danger" },
+};
+
+export const ProofStatusBadge = ({ status }: { status: string }) => <StatusBadge map={PROOF_STATUS} value={status} />;

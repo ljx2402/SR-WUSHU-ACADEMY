@@ -16,7 +16,9 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from django.http import FileResponse
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -35,7 +37,8 @@ from apps.competitions import services as competition_services
 from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
 from apps.finance import access as finance_access
 from apps.finance import services as finance_services
-from apps.finance.models import Charge, Invoice
+from apps.finance import proofs as proof_services
+from apps.finance.models import AcademyPaymentInfo, Charge, Invoice, PaymentProof
 from apps.payroll import services as payroll_services
 from apps.payroll.models import PayrollRun, Payslip
 
@@ -699,6 +702,113 @@ class ReceiptViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return finance_access.receipts_for(self.request.user)
+
+
+class PaymentProofViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+                          mixins.CreateModelMixin, viewsets.GenericViewSet):
+    """Payment proofs: a parent uploads evidence of a manual payment for their
+    family's open invoice (multipart); staff accept or reject it. Neither step
+    records a payment, issues a receipt or changes an invoice: staff record the
+    payment with ``POST /api/payments/`` as before. Proofs are never deleted."""
+
+    serializer_class = s.PaymentProofSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    capabilities = caps(
+        read=(Cap.FINANCE_PROOFS_REVIEW, Cap.FINANCE_VIEW_OWN_CHILDREN),
+        file=(Cap.FINANCE_PROOFS_REVIEW, Cap.FINANCE_VIEW_OWN_CHILDREN),
+        create=Cap.FINANCE_PROOFS_UPLOAD_OWN,
+        accept=Cap.FINANCE_PROOFS_REVIEW,
+        reject=Cap.FINANCE_PROOFS_REVIEW,
+    )
+
+    def get_queryset(self):
+        qs = finance_access.proofs_for(self.request.user).select_related(
+            "family", "invoice", "uploaded_by", "reviewed_by", "payment")
+        params = self.request.query_params
+        if id_param(params, "invoice"):
+            qs = qs.filter(invoice_id=id_param(params, "invoice"))
+        if id_param(params, "family"):
+            qs = qs.filter(family_id=id_param(params, "family"))
+        if params.get("status"):
+            qs = qs.filter(status__in=params["status"].split(","))
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        # Ownership first: another family's invoice is "not found", whatever else is wrong.
+        invoice_id = id_param(request.data, "invoice")
+        if invoice_id is None:
+            raise ValidationError({"invoice": "Choose the invoice this payment is for."})
+        invoice = finance_access.parent_invoices_for(request.user).filter(pk=invoice_id).first()
+        if invoice is None:
+            raise NotFound()
+        data = s.PaymentProofUploadSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        v = data.validated_data
+        try:
+            proof = proof_services.submit_proof(
+                invoice, v["file"], request.user, amount_claimed=v.get("amount_claimed"),
+                payment_date=v.get("payment_date"), reference=v["reference"], note=v["note"])
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict if hasattr(exc, "error_dict") else {"detail": exc.messages}) from None
+        return Response(self.get_serializer(proof).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"])
+    def file(self, request, pk=None):
+        """The uploaded file, as a download (never rendered inline by the browser)."""
+        proof = self.get_object()
+        try:
+            handle = proof.file.open("rb")
+        except (FileNotFoundError, OSError):
+            raise NotFound("The file is not available.") from None
+        response = FileResponse(handle, as_attachment=True, filename=proof.original_name,
+                                content_type=proof.content_type)
+        response["Cache-Control"] = "private, no-store"
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        return response
+
+    @action(detail=True, methods=["post"])
+    def accept(self, request, pk=None):
+        data = s.ProofAcceptSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        proof = proof_services.accept_proof(self.get_object(), request.user, data.validated_data["note"],
+                                            data.validated_data.get("payment"))
+        return Response(self.get_serializer(proof).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        proof = proof_services.reject_proof(self.get_object(), request.user, request.data.get("reason", ""))
+        return Response(self.get_serializer(proof).data)
+
+
+class AcademyPaymentInfoView(ApiViewMixin, APIView):
+    """The academy's bank details / QR / instructions for paying invoices.
+    Parents and finance staff read it; ``finance.payment_info.manage`` changes it."""
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    capabilities = {
+        "get": (Cap.FINANCE_VIEW_OWN_CHILDREN, Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENT_INFO_MANAGE),
+        "put": Cap.FINANCE_PAYMENT_INFO_MANAGE,
+        "patch": Cap.FINANCE_PAYMENT_INFO_MANAGE,
+    }
+
+    def get(self, request):
+        info = AcademyPaymentInfo.current() or AcademyPaymentInfo(reference_instructions="")
+        return Response(s.AcademyPaymentInfoSerializer(info, context={"request": request}).data)
+
+    def patch(self, request):
+        data = s.AcademyPaymentInfoUpdateSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        v = dict(data.validated_data)
+        qr = v.pop("qr_code", None)
+        remove = v.pop("remove_qr_code", False)
+        try:
+            info = proof_services.update_payment_info(request.user, v, qr_upload=qr, remove_qr=remove)
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict if hasattr(exc, "error_dict") else {"detail": exc.messages}) from None
+        return Response(s.AcademyPaymentInfoSerializer(info, context={"request": request}).data)
+
+    put = patch
 
 
 class RefundViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):

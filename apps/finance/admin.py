@@ -11,6 +11,7 @@ from decimal import Decimal
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
@@ -18,8 +19,9 @@ from django.utils.html import format_html
 
 from apps.accounts.capabilities import Cap, can
 
-from . import services
+from . import proofs, services
 from .models import (
+    AcademyPaymentInfo,
     Charge,
     ChargeItem,
     ClassFee,
@@ -27,6 +29,7 @@ from .models import (
     InvoiceItem,
     Payment,
     PaymentAllocation,
+    PaymentProof,
     Receipt,
     ReceiptVoid,
     Refund,
@@ -469,3 +472,99 @@ class ReceiptAdmin(admin.ModelAdmin):
     @admin.display(description="Print")
     def print_link(self, obj):
         return format_html('<a href="{}" target="_blank">Print</a>', reverse("receipt-print", args=[obj.pk]))
+
+
+@admin.register(PaymentProof)
+class PaymentProofAdmin(admin.ModelAdmin):
+    """Read-only list of parents' payment proofs, with a permission-checked
+    download. Accepting / rejecting happens through the API (the staff finance
+    screens come in Phase 6F); recording the actual payment is the Payment page."""
+
+    list_display = ("invoice", "family", "status", "amount_claimed", "payment_date", "uploaded_by", "uploaded_at",
+                    "download")
+    list_filter = ("status",)
+    search_fields = ("invoice__number", "family__name", "reference")
+    date_hierarchy = "uploaded_at"
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in PaymentProof._meta.fields if f.name != "file"] + ["download"]
+
+    def get_fields(self, request, obj=None):
+        return self.get_readonly_fields(request, obj)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_urls(self):
+        return [path("<int:pk>/download/", self.admin_site.admin_view(self.download_view),
+                     name="finance_paymentproof_download")] + super().get_urls()
+
+    @admin.display(description="File")
+    def download(self, obj):
+        return format_html('<a href="{}">{}</a>', reverse("admin:finance_paymentproof_download", args=[obj.pk]),
+                           obj.original_name)
+
+    def download_view(self, request, pk):
+        if not can(request.user, Cap.FINANCE_PROOFS_REVIEW):
+            raise PermissionDenied
+        proof = get_object_or_404(PaymentProof, pk=pk)
+        try:
+            handle = proof.file.open("rb")
+        except (FileNotFoundError, OSError):
+            raise Http404 from None
+        response = FileResponse(handle, as_attachment=True, filename=proof.original_name,
+                                content_type=proof.content_type)
+        response["Cache-Control"] = "private, no-store"
+        response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        return response
+
+
+class PaymentInfoForm(forms.ModelForm):
+    qr_upload = forms.FileField(required=False, label="New QR code (PNG or JPEG)")
+    remove_qr = forms.BooleanField(required=False, label="Remove the current QR code")
+
+    class Meta:
+        model = AcademyPaymentInfo
+        fields = ["bank_name", "account_name", "account_number", "instructions", "reference_instructions"]
+
+    def clean_qr_upload(self):
+        upload = self.cleaned_data.get("qr_upload")
+        if upload:
+            from django.conf import settings as django_settings
+
+            from .uploads import validate_upload
+
+            validate_upload(upload, ("png", "jpg"), django_settings.PAYMENT_QR_MAX_BYTES)
+        return upload
+
+
+@admin.register(AcademyPaymentInfo)
+class AcademyPaymentInfoAdmin(admin.ModelAdmin):
+    """The academy's bank details and QR shown to parents. Saved through the
+    service, so the QR upload is validated and the change audited."""
+
+    form = PaymentInfoForm
+    list_display = ("__str__", "bank_name", "account_name", "account_number", "updated_at")
+    readonly_fields = ("updated_at", "updated_by")
+
+    def has_add_permission(self, request):
+        return super().has_add_permission(request) and not AcademyPaymentInfo.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        values = {f: form.cleaned_data.get(f, "") for f in proofs.PAYMENT_INFO_FIELDS}
+        try:
+            saved = proofs.update_payment_info(request.user, values, qr_upload=form.cleaned_data.get("qr_upload"),
+                                               remove_qr=form.cleaned_data.get("remove_qr", False))
+        except ValidationError as exc:
+            messages.error(request, _errors(exc))
+            raise PermissionDenied(_errors(exc)) from None
+        obj.pk = saved.pk

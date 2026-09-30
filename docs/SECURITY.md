@@ -25,7 +25,7 @@ blockers" at the end.
 | F13 | Logging | No logging configuration: no guarantee secrets stay out of logs; SQL could be logged at DEBUG | Low | Fixed: redaction filter, SQL logger pinned to WARNING |
 | F14 | API | Browsable HTML API enabled in all environments | Low | Fixed: JSON only in production |
 | — | Secrets in git | None found. `.env` and `db.sqlite3` are git-ignored. `.env.example` and `docker-compose.yml` hold only local development credentials, labelled as such | — | OK |
-| — | File uploads | None: no FileField/ImageField, no `request.FILES`. Request size limits are explicit | — | OK (N/A) |
+| — | File uploads | None: no FileField/ImageField, no `request.FILES`. Request size limits are explicit | — | OK (N/A). **Update (payment proofs):** parents now upload payment proofs; see `docs/PAYMENT_PROOFS.md` (type + content checks, size limits, generated names, private storage, permission-checked downloads, audit) |
 | — | CORS | Not installed: browsers cannot call the API cross-origin. A separate web front end must be same-origin or add CORS deliberately later | — | OK |
 | — | Dependencies | `pip-audit`: no known vulnerabilities. Django 5.2.17 is the newest 5.2 LTS patch; DRF, psycopg, dj-database-url, sqlparse and asgiref are at their latest releases | — | OK, unchanged |
 

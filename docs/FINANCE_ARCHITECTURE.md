@@ -196,3 +196,9 @@ are never logged. Masking of IC, bank and medical values in audit entries is Pha
 | `/invoices/{id}/` | Printable invoice |
 | `/api/refunds/` | Refund records |
 | `/api/reports/invoices/`, `/api/reports/refunds/` | Finance reports |
+
+## Payment proofs
+
+Parents upload evidence of manual payments (`PaymentProof`); staff review it and then record
+the payment as above. A proof never records money or changes an invoice. See
+`docs/PAYMENT_PROOFS.md`.

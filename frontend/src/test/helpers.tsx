@@ -40,7 +40,7 @@ export function fakeFetch(routes: Record<string, Handler | Response | (() => Res
     const route = routes[`${method} ${url.pathname}`];
     if (!route) return json({ detail: "Not found." }, 404);
     if (route instanceof Response) return route.clone();
-    const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+    const body = typeof init.body === "string" ? JSON.parse(init.body) : init.body; // FormData for uploads
     return (route as Handler)({ method, url, body, headers: (init.headers ?? {}) as Record<string, string> });
   });
 }
@@ -62,7 +62,7 @@ const CAPABILITIES: Record<Role, string[]> = {
                   "students.view_directory"],
   COACH: ["sessions.view_assigned", "attendance.take_assigned", "students.view_assigned", "payroll.view_own"],
   PARENT: ["students.view_own_children", "sessions.view_own_children", "attendance.view_own_children",
-           "finance.view_own_children", "competition.registrations.view_own_children",
+           "finance.view_own_children", "finance.proofs.upload_own", "competition.registrations.view_own_children",
            "competition.register_own_children"],
   STUDENT: ["students.view_self", "sessions.view_self", "attendance.view_self",
             "competition.registrations.view_self"],

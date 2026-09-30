@@ -99,6 +99,10 @@ class Cap:
     FINANCE_PAYMENTS_VOID = "finance.payments.void"
     FINANCE_INVOICES_MANAGE = "finance.invoices.manage"  # draft, issue and void invoices
     FINANCE_REFUNDS_RECORD = "finance.refunds.record"    # exceptional refunds (reason required, audited)
+    # Payment proofs: evidence a parent uploads ("I have paid"). Never a payment or a receipt.
+    FINANCE_PROOFS_UPLOAD_OWN = "finance.proofs.upload_own"  # parent: for own families' open invoices
+    FINANCE_PROOFS_REVIEW = "finance.proofs.review"          # staff: view every proof, accept or reject
+    FINANCE_PAYMENT_INFO_MANAGE = "finance.payment_info.manage"  # the academy's bank details / QR shown to parents
 
     # Competitions
     COMPETITION_VIEW = "competition.view"              # published competitions and events
@@ -142,6 +146,8 @@ _ADMIN = {
     # Front desk may receive and record payments (and so needs to see what is owed),
     # and may authorize an exceptional refund (reason required, audited).
     Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENTS_RECORD, Cap.FINANCE_REFUNDS_RECORD,
+    # ...and so checks the payment proofs parents upload before recording the payment.
+    Cap.FINANCE_PROOFS_REVIEW,
     Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE,
     Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_MANAGE, Cap.COMPETITION_RESULTS_MANAGE,
     Cap.REPORTS_STUDENTS, Cap.REPORTS_ATTENDANCE, Cap.REPORTS_COMPETITIONS,
@@ -154,6 +160,7 @@ _FINANCE_ADMIN = {
     Cap.FINANCE_VIEW_ALL, Cap.FINANCE_SETUP, Cap.FINANCE_CHARGES_MANAGE,
     Cap.FINANCE_PAYMENTS_RECORD, Cap.FINANCE_PAYMENTS_VOID,
     Cap.FINANCE_INVOICES_MANAGE, Cap.FINANCE_REFUNDS_RECORD,
+    Cap.FINANCE_PROOFS_REVIEW, Cap.FINANCE_PAYMENT_INFO_MANAGE,
     Cap.COMPETITION_VIEW,
     Cap.PAYROLL_VIEW_ALL, Cap.PAYROLL_RATES_MANAGE, Cap.PAYROLL_PREPARE,
     Cap.REPORTS_FINANCE, Cap.REPORTS_PAYROLL,
@@ -171,7 +178,7 @@ _PARENT = {
     Cap.STUDENTS_VIEW_OWN_CHILDREN,
     Cap.CLASSES_VIEW_OWN_CHILDREN, Cap.SESSIONS_VIEW_OWN_CHILDREN,
     Cap.ATTENDANCE_VIEW_OWN_CHILDREN,
-    Cap.FINANCE_VIEW_OWN_CHILDREN,
+    Cap.FINANCE_VIEW_OWN_CHILDREN, Cap.FINANCE_PROOFS_UPLOAD_OWN,
     Cap.COMPETITION_VIEW, Cap.COMPETITION_REGISTRATIONS_VIEW_OWN_CHILDREN, Cap.COMPETITION_REGISTER_OWN_CHILDREN,
 }
 
@@ -233,6 +240,9 @@ MODEL_CAPABILITIES = {
     "finance.invoice": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_INVOICES_MANAGE),
     "finance.invoiceitem": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_INVOICES_MANAGE),
     "finance.refund": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_REFUNDS_RECORD),
+    # Proofs are reviewed through the API (accept / reject); the admin only lists them.
+    "finance.paymentproof": (Cap.FINANCE_PROOFS_REVIEW, None),
+    "finance.academypaymentinfo": (Cap.FINANCE_VIEW_ALL, Cap.FINANCE_PAYMENT_INFO_MANAGE),
     "competitions.competition": (Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE),
     "competitions.competitionevent": (Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE),
     "competitions.competitionregistration": (Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_MANAGE),

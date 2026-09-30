@@ -21,6 +21,7 @@ router.register("invoices", views.InvoiceViewSet, basename="invoice")
 router.register("payments", views.PaymentViewSet, basename="payment")
 router.register("refunds", views.RefundViewSet, basename="refund")
 router.register("receipts", views.ReceiptViewSet, basename="receipt")
+router.register("payment-proofs", views.PaymentProofViewSet, basename="payment-proof")
 router.register("competitions", views.CompetitionViewSet, basename="competition")
 router.register("competition-events", views.CompetitionEventViewSet, basename="competition-event")
 router.register("competition-registrations", views.CompetitionRegistrationViewSet, basename="competition-registration")
@@ -32,6 +33,7 @@ urlpatterns = [
     path("auth/token/", ObtainTokenView.as_view(), name="api-token"),
     path("auth/logout/", LogoutView.as_view(), name="api-logout"),
     path("me/", views.MeView.as_view(), name="api-me"),
+    path("payment-info/", views.AcademyPaymentInfoView.as_view(), name="payment-info"),
     path("reports/", ReportIndexView.as_view(), name="report-index"),
     path("reports/<str:name>/", ReportView.as_view(), name="report"),
     path("", include(router.urls)),

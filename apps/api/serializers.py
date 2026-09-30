@@ -18,7 +18,9 @@ from apps.accounts.models import Coach, Parent, User  # noqa: F401  (Parent used
 from apps.attendance.models import AttendanceRecord, AttendanceStatus
 from apps.audit.models import AuditLog
 from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
-from apps.finance.models import Charge, FeeType, Invoice, InvoiceItem, Payment, PaymentAllocation, Receipt, Refund
+from apps.finance.models import (
+    AcademyPaymentInfo, Charge, FeeType, Invoice, InvoiceItem, Payment, PaymentAllocation, PaymentProof, Receipt, Refund,
+)
 from apps.audit.masking import mask_identifier
 from apps.payroll.models import PayrollRun, Payslip, PayslipLine
 
@@ -522,3 +524,108 @@ class UserSerializer(serializers.ModelSerializer):
 class RoleChangeSerializer(serializers.Serializer):
     roles = serializers.ListField(child=serializers.ChoiceField(choices=Role.choices), allow_empty=True)
     reason = serializers.CharField()
+
+
+class PaymentProofSerializer(serializers.ModelSerializer):
+    """A parent's payment proof. The file itself is only available through the
+    permission-checked download action; its storage path is never returned.
+    Reviewer-only details (who reviewed, file checksum) are left out for parents."""
+
+    family_name = serializers.CharField(source="family.name", read_only=True)
+    invoice_number = serializers.CharField(source="invoice.number", read_only=True)
+    invoice_status = serializers.CharField(source="invoice.status", read_only=True)
+    invoice_balance_due = serializers.DecimalField(source="invoice.balance_due", max_digits=10, decimal_places=2,
+                                                   read_only=True)
+    uploaded_by_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+    payment_number = serializers.CharField(source="payment.number", read_only=True, default=None)
+
+    REVIEWER_ONLY = ("reviewed_by_name", "sha256")
+
+    class Meta:
+        model = PaymentProof
+        fields = ["id", "family", "family_name", "invoice", "invoice_number", "invoice_status", "invoice_balance_due",
+                  "uploaded_by_name", "uploaded_at", "original_name", "content_type", "size", "sha256",
+                  "amount_claimed", "payment_date", "reference", "note", "status", "reviewed_by_name",
+                  "reviewed_at", "review_note", "payment", "payment_number"]
+        read_only_fields = fields
+
+    @staticmethod
+    def _name(user):
+        return (user.get_full_name() or user.username) if user else None
+
+    def get_uploaded_by_name(self, obj):
+        return self._name(obj.uploaded_by)
+
+    def get_reviewed_by_name(self, obj):
+        return self._name(obj.reviewed_by)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if not can(getattr(request, "user", None), Cap.FINANCE_PROOFS_REVIEW):
+            for name in self.REVIEWER_ONLY:
+                data.pop(name, None)
+        return data
+
+
+class PaymentProofUploadSerializer(serializers.Serializer):
+    invoice = serializers.IntegerField()
+    file = serializers.FileField(allow_empty_file=False, use_url=False)
+    amount_claimed = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"),
+                                              required=False, allow_null=True)
+    payment_date = serializers.DateField(required=False, allow_null=True)
+    reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+
+class ProofAcceptSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+    payment = serializers.PrimaryKeyRelatedField(queryset=Payment.objects.all(), required=False, allow_null=True)
+
+
+class AcademyPaymentInfoSerializer(serializers.ModelSerializer):
+    """What parents see to pay the academy. The QR code is returned inline as a
+    data: URI (small image; works under the Content-Security-Policy)."""
+
+    configured = serializers.BooleanField(source="is_configured", read_only=True)
+    qr_code = serializers.SerializerMethodField()
+    updated_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AcademyPaymentInfo
+        fields = ["configured", "bank_name", "account_name", "account_number", "instructions",
+                  "reference_instructions", "qr_code", "updated_at", "updated_by_name"]
+
+    def get_qr_code(self, obj):
+        if not obj.qr_code:
+            return None
+        import base64
+
+        try:
+            with obj.qr_code.open("rb") as handle:
+                content = handle.read()
+        except (FileNotFoundError, OSError):
+            return None
+        return f"data:{obj.qr_content_type};base64,{base64.b64encode(content).decode()}"
+
+    def get_updated_by_name(self, obj):
+        user = obj.updated_by
+        return (user.get_full_name() or user.username) if user else None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if not can(getattr(request, "user", None), Cap.FINANCE_PAYMENT_INFO_MANAGE):
+            data.pop("updated_by_name", None)
+        return data
+
+
+class AcademyPaymentInfoUpdateSerializer(serializers.Serializer):
+    bank_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    account_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    account_number = serializers.CharField(max_length=40, required=False, allow_blank=True)
+    instructions = serializers.CharField(required=False, allow_blank=True)
+    reference_instructions = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    qr_code = serializers.FileField(required=False, allow_empty_file=False, use_url=False)
+    remove_qr_code = serializers.BooleanField(required=False, default=False)

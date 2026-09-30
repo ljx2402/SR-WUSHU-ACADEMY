@@ -16,7 +16,7 @@ from apps.academy import access
 from apps.academy.models import Family
 from apps.accounts.capabilities import Cap, can
 
-from .models import Invoice, Payment, Receipt, Refund
+from .models import Invoice, Payment, Receipt, Refund  # noqa: F401 (PaymentProof imported lazily)
 
 
 def families_for(user):
@@ -62,3 +62,24 @@ def can_view_invoice(user, invoice):
 
 def can_view_receipt(user, receipt):
     return receipts_for(user).filter(pk=receipt.pk).exists()
+
+
+def proofs_for(user):
+    """Payment proofs: reviewers see all; a parent sees their own families' proofs."""
+    from .models import PaymentProof
+
+    if can(user, Cap.FINANCE_PROOFS_REVIEW):
+        return PaymentProof.objects.all()
+    if can(user, Cap.FINANCE_VIEW_OWN_CHILDREN):
+        return PaymentProof.objects.filter(family__in=families_for(user))
+    return PaymentProof.objects.none()
+
+
+def parent_invoices_for(user):
+    """Invoices a parent may upload proof for: their own families' invoices only
+    (never widened by staff access, which does not upload proofs)."""
+    parent = access.parent_of(user)
+    if not parent or not can(user, Cap.FINANCE_PROOFS_UPLOAD_OWN):
+        return Invoice.objects.none()
+    families = Family.objects.filter(students__guardianships__parent=parent).distinct()
+    return Invoice.objects.filter(family__in=families).exclude(status=Invoice.Status.DRAFT)

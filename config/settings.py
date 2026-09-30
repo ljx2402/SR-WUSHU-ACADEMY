@@ -257,7 +257,21 @@ LOGIN_LOCKOUT = {
 # API tokens (parent / coach / student apps) expire this many hours after they are issued.
 API_TOKEN_TTL_HOURS = env_int("API_TOKEN_TTL_HOURS", 24 * 14)
 
-# Uploads: the system accepts none; keep Django's small request limits explicit.
+# Uploads: the only user uploads are payment proofs (and the academy's payment QR code).
+# They are kept in PRIVATE storage: outside STATIC_ROOT, never served by the web server,
+# and only returned through permission-checked API views. The storage is a Django
+# storage alias, so an external backend (e.g. Google Drive) can replace it later
+# without code changes; none is configured now.
+PRIVATE_MEDIA_ROOT = Path(os.environ.get("PRIVATE_MEDIA_ROOT", BASE_DIR / "private_media"))
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage",
+                "OPTIONS": {"location": PRIVATE_MEDIA_ROOT / "default", "base_url": None}},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "private": {"BACKEND": os.environ.get("PRIVATE_STORAGE_BACKEND", "django.core.files.storage.FileSystemStorage"),
+                "OPTIONS": {"location": PRIVATE_MEDIA_ROOT, "base_url": None}},
+}
+PAYMENT_PROOF_MAX_BYTES = env_int("PAYMENT_PROOF_MAX_BYTES", 5 * 1024 * 1024)
+PAYMENT_QR_MAX_BYTES = env_int("PAYMENT_QR_MAX_BYTES", 1024 * 1024)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2_621_440
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 2000

@@ -4,10 +4,13 @@ import { Link, useParams } from "react-router";
 
 import { allPages } from "../../api/endpoints";
 import { isApiError } from "../../api/errors";
-import type { Charge, Invoice, InvoiceItem, Payment, Receipt } from "../../api/types";
+import type { Charge, Invoice, InvoiceItem, Payment, PaymentProof, Receipt } from "../../api/types";
 import { useServices } from "../../app/services";
+import { can } from "../../auth/access";
+import { useMe } from "../../auth/AuthProvider";
 import {
   ChargeStatusBadge, FEE_TYPE_LABELS, InvoiceStatusBadge, Money, PAYMENT_METHOD_LABELS, PaymentStatusBadge,
+  ProofStatusBadge,
 } from "../../domain/finance";
 import { formatDate, formatDateTime, formatPeriod, isPositiveMoney, sumMoney } from "../../domain/format";
 import { PageHeader } from "../../layout/PageHeader";
@@ -16,6 +19,7 @@ import { DataTable, type Column } from "../../ui/DataTable";
 import { Alert, Badge } from "../../ui/primitives";
 import { EmptyState, ErrorState, LoadingState, NotFoundState } from "../../ui/states";
 import { DefinitionList, FinanceNav, LoadMore, Section, StudentSelector } from "../components";
+import { PaymentInformation, ProofHistory, ProofUploadForm } from "../PaymentSection";
 import { useSelectedStudent } from "../ParentContext";
 import { parentKeys, useFamilies, usePagedList } from "../queries";
 
@@ -102,7 +106,7 @@ export function FinanceOverviewPage() {
   return (
     <>
       <PageHeader title="Family finance" crumbs={CRUMBS}
-                  description="Your family receives invoices that can include charges for several children. Payments are made at the academy office and recorded by the academy; the app does not take payments." />
+                  description="Your family receives invoices that can include charges for several children. Pay the academy by bank transfer, QR or another method it accepts, then upload your proof of payment on the invoice. The academy checks it, records the payment and issues the official receipt." />
       <FinanceNav />
       <FamilyHeading />
       <Section title="Invoices awaiting payment">
@@ -185,6 +189,7 @@ function groupByStudent(items: InvoiceItem[]) {
 }
 
 export function InvoiceDetailPage() {
+  const me = useMe();
   const { invoiceId = "" } = useParams();
   const { endpoints } = useServices();
   const invoice = useQuery({
@@ -260,12 +265,13 @@ export function InvoiceDetailPage() {
             <div><dt>Refunded by the academy</dt><dd><Money value={inv.amount_refunded} /></dd></div>
           ) : null}
         </dl>
-        {isPositiveMoney(inv.balance_due) && inv.status !== "VOID" ? (
-          <Alert tone="info" title="How to pay">
-            <p>Please pay at the academy office or as the academy has advised. Payments are recorded by the academy,
-              and a receipt appears here once they have been recorded.</p>
-          </Alert>
+        {isPositiveMoney(inv.balance_due) && (inv.status === "ISSUED" || inv.status === "PARTIALLY_PAID") ? (
+          <div className="no-print">
+            <PaymentInformation invoice={inv} />
+            {can(me, "finance.proofs.upload_own") ? <ProofUploadForm invoice={inv} /> : null}
+          </div>
         ) : null}
+        <div className="no-print"><ProofHistory invoice={inv} /></div>
         <Section title="Payments applied">
           {payments.isPending ? <LoadingState /> : payments.isError ? <ErrorState error={payments.error} /> : (
             <DataTable
@@ -408,6 +414,46 @@ export function ReceiptDetailPage() {
         </dl>
         {c.issued_by ? <p className="muted">Issued by {c.issued_by}</p> : null}
       </article>
+    </>
+  );
+}
+
+/** Every payment proof the family has uploaded, with its review outcome. */
+export function PaymentProofsPage() {
+  const { endpoints } = useServices();
+  const proofs = usePagedList<PaymentProof>(["parent", "payment-proofs", "all"],
+    (page, signal) => endpoints.paymentProofs({ page }, signal));
+  return (
+    <>
+      <PageHeader title="Payment proofs" crumbs={FINANCE_CRUMBS}
+                  description="Proofs of payment you have uploaded. A proof is not a receipt: the official receipt is issued when the academy records the payment." />
+      <FinanceNav />
+      {proofs.isPending ? <LoadingState /> : proofs.isError ? (
+        <ErrorState error={proofs.error} onRetry={() => proofs.refetch()} />
+      ) : (
+        <>
+          <DataTable<PaymentProof>
+            caption="Payment proofs"
+            rows={proofs.rows}
+            rowKey={(p) => p.id}
+            emptyMessage="No payment proofs uploaded yet."
+            columns={[
+              { key: "uploaded", header: "Uploaded", render: (p) => formatDateTime(p.uploaded_at) },
+              { key: "invoice", header: "Invoice", render: (p) => <Link to={`/parent/finance/invoices/${p.invoice}`}>{p.invoice_number}</Link> },
+              { key: "amount", header: "Amount paid", align: "end", render: (p) => (p.amount_claimed ? <Money value={p.amount_claimed} /> : "—") },
+              { key: "status", header: "Status", render: (p) => (
+                <>
+                  <ProofStatusBadge status={p.status} />
+                  {p.status === "REJECTED" && p.review_note ? <p className="proof-reason">Reason: {p.review_note}</p> : null}
+                </>
+              ) },
+              { key: "file", header: "File", render: (p) => p.original_name, priority: "secondary" },
+            ]}
+          />
+          <LoadMore shown={proofs.rows.length} total={proofs.count} hasMore={!!proofs.hasNextPage}
+                    loading={proofs.isFetchingNextPage} onMore={() => proofs.fetchNextPage()} />
+        </>
+      )}
     </>
   );
 }

@@ -6,3 +6,4 @@ staticfiles/
 .env
 backups/
 *.dump
+private_media/

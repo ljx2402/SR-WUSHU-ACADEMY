@@ -103,6 +103,7 @@ export const SUB_ROUTES: readonly SubRoute[] = [
   { path: "/parent/finance/invoices", parent: "parent-finance" },
   { path: "/parent/finance/invoices/:invoiceId", parent: "parent-finance" },
   { path: "/parent/finance/payments", parent: "parent-finance" },
+  { path: "/parent/finance/proofs", parent: "parent-finance" },
   { path: "/parent/finance/receipts", parent: "parent-finance" },
   { path: "/parent/finance/receipts/:receiptId", parent: "parent-finance" },
   { path: "/parent/competitions/:competitionId", parent: "parent-competitions" },

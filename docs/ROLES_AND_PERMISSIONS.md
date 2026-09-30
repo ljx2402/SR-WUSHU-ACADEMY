@@ -109,7 +109,10 @@ bumped, so existing sessions must sign in again. The migration is reversible (st
 | `finance.charges.manage` | ✅ |  | ✅ |  |  |  |
 | `finance.invoices.manage` | ✅ |  | ✅ |  |  |  |
 | `finance.payments.record` | ✅ | ✅ | ✅ |  |  |  |
+| `finance.payment_info.manage` | ✅ |  | ✅ |  |  |  |
 | `finance.payments.void` | ✅ |  | ✅ |  |  |  |
+| `finance.proofs.review` | ✅ | ✅ | ✅ |  |  |  |
+| `finance.proofs.upload_own` | ✅ |  |  |  | ✅ |  |
 | `finance.refunds.record` | ✅ | ✅ | ✅ |  |  |  |
 | `finance.setup` | ✅ |  | ✅ |  |  |  |
 | `finance.view_all` | ✅ | ✅ | ✅ |  |  |  |
