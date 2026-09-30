@@ -7,8 +7,9 @@ to *show*, the API decides what is *allowed*.
 
 Phase 6A delivered the foundation: sign-in, the application shell, navigation, the design
 system, the API client, route protection and a dashboard built from real API data. Phase 6B
-added the **Parent Portal**, Phase 6C the **Coach Portal** and Phase 6D the **Student
-Portal** (see below). The staff pages are built in later phases (6E–6J); until then each of their pages exists, is protected, and says "This page is not
+added the **Parent Portal**, Phase 6C the **Coach Portal**, Phase 6D the **Student
+Portal** and Phase 6E the **Staff Core Operations Portal** (see below). The remaining staff
+pages (competitions, finance, payroll, reports) are built in later phases (6F–6J); until then each of their pages exists, is protected, and says "This page is not
 available yet" (no invented data).
 
 ## Technology (and why)
@@ -526,9 +527,62 @@ could not show them. Nothing in the portal writes: no register, withdraw, attend
 profile editing controls. The menu has only the student pages (no finance, family, coach,
 admin or payroll).
 
+## Staff Core Operations Portal (Phase 6E)
+
+For academy staff (ADMIN, SUPER_ADMIN): the day's operations. Each page needs its own
+existing capability, so FINANCE_ADMIN (`students.view_directory`) sees only the student
+directory; nothing of classes, sessions or attendance. Every change goes to the existing
+service endpoints (reasons, lifecycle rules and audit are the backend's); the React portal
+does not replace Django Admin, which stays available for deeper administration (guardian
+and personal-detail editing, class coach assignments, timetable slots, finance).
+
+### Routes
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/staff` | redirects to `/staff/dashboard` | – |
+| `/staff/dashboard` | "Operations": sessions today, in progress, next, cancelled, substitute-covered, active students / classes (when permitted), alerts (attendance not finished, locked with students not marked, sessions without a coach, classes without a coach), attendance completed recently, links to Django Admin | `sessions.view_all` |
+| `/staff/students` | Search (name, Chinese name, student no.), status and class filters, paginated minimal rows | `students.view_all` or `students.view_directory` |
+| `/staff/students/:studentId` | Full record for `students.view_all` (IC masked until "Show", guardians without their IC, health note, classes, family, recent audited changes); the directory for finance. Edit details (names, gender, date of birth, school), change status (optional reason), add to / end a class (`students.manage`) | same |
+| `/staff/classes` | Active / inactive / all, coaches, timetable, current student count; create a class (`classes.manage`) | `classes.view_all` |
+| `/staff/classes/:classId` | Details, coaches, timetable, roster (name, student no., status only), upcoming sessions; edit, activate / deactivate after confirmation (`classes.manage`) | `classes.view_all` |
+| `/staff/timetable` | Weekly timetable from the classes' slots, filtered by day, class, coach, venue (read only) | `classes.view_all` |
+| `/staff/sessions` | Today / upcoming / past / cancelled or a date; class and coach filters; attendance state per session | `sessions.view_all` |
+| `/staff/sessions/:sessionId` | Session, coaches and substitute authorizations, attendance summary and expected students; reschedule, cancel, reinstate, reassign the regular coach, assign / revoke a substitute (`sessions.manage`, `substitute.assign` / `.revoke`), each with the reason the backend requires | `sessions.view_all` |
+| `/staff/attendance` | Monitoring over a date range: expected / marked / not marked / percentage and state from the backend; class and coach filters; incomplete only; show cancelled | `attendance.view_all` |
+| `/staff/sessions/:sessionId/attendance` | The attendance sheet (shared with the Coach Portal): recording with `attendance.take_any`, correction of a locked session with `attendance.correct` and a required reason; per-record change history (audit log) | `attendance.view_all` |
+
+### API
+
+Existing endpoints, plus three small read-only additions: `GET /api/staff/dashboard/`
+(counts and alerts derived from current data; no notification model), `GET /api/programs/`
+(to pick a program when creating a class) and staff-only query parameters (`coach` on
+sessions, `class` / `family` on students). Staff student **lists** now return a minimal row
+(`StaffStudentListSerializer`); the full record is only in the detail view.
+
+### Privacy
+
+The operations pages carry no invoices, payments, payment proofs, bank details or payroll.
+The IC is masked on screen until "Show"; guardians' own IC numbers are never displayed. The
+class roster shows names, student numbers and status only (the API's staff roster still
+carries the health note and emergency contacts for `students.view_all`, as decided in 6C,
+but the page does not display them).
+
 ## Tests
 
-`npm test` runs 151 tests: the Phase 6A suite (61), the Parent Portal suites (55,
+`npm test` runs 175 tests: the Staff Portal suite (24, `src/staff/test/`: dashboard KPIs,
+backend alerts and zero-count alerts hidden, no finance/medical data, `/staff` redirect and
+capability menu, error retry; student list without sensitive fields, search/status/class
+filters sent to the API, detail with masked IC and guardians without IC, recent changes,
+edit limited to allowed fields, status change with reason, backend refusal shown in the
+dialog, finance directory without edit controls; classes list/inactive filter/create,
+class roster without sensitive data, deactivation after confirmation, timetable filters;
+session filters, detail with coaches and expected students, reschedule and cancel with
+reasons and the backend's refusal, substitute and coach reassignment with active coaches
+only; attendance monitoring counts and filters, administrator correction with a required
+reason and change history, read-only locked sheet without `attendance.correct`; coach,
+parent and student denied everywhere, finance admin limited to the directory, super admin
+allowed; labelled cells for phones, phone menu, unknown student), the Phase 6A suite (61), the Parent Portal suites (55,
 `src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10), the
 Student Portal suite (17, `src/student/test/`: dashboard KPIs and sections, landing and
 `/student` redirect, menu without finance/family/coach/admin pages, loading and error states,
@@ -572,7 +626,8 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 
 ## Known limitations
 
-* Staff pages are placeholders until their phase (6E–6J). Coach payslips
+* Staff competition, finance, payroll and report pages are placeholders until their phase
+  (6F–6J); the operations dashboard links to Django Admin for them meanwhile. Coach payslips
   (the backend's existing `payroll.view_own`) are not shown in the Coach Portal; payroll
   screens are Phase 6I.
   Notifications and recent activity are marked "not available yet": the backend has no

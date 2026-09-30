@@ -193,3 +193,24 @@ A student login sees only its own attendance, read only:
 * Students cannot record, change or correct attendance, read attendance sheets or change history
   (403), and other students' records are 404.
 
+## Staff Portal (Phase 6E)
+
+* **Monitoring** (`/staff/attendance`) lists sessions over a date range with the state and the
+  expected / marked / not-marked counts and percentage from `GET /api/sessions/coaching/`
+  (the attendance services; nothing is recalculated). "Incomplete only" keeps sessions that
+  are open or locked with students not marked; cancelled sessions are hidden unless asked for.
+* The **operations dashboard** (`GET /api/staff/dashboard/`) counts sessions of the last 7
+  days that have started, are not cancelled and have expected students without a mark (from
+  `expected_pairs` and the records), split into "coach window open" and "locked:
+  administrator correction". Sessions of the next 14 days with no assigned coach and active
+  classes with no current coach are listed too. These are queries, not stored notifications.
+* The **attendance sheet** is the Coach Portal's page in staff mode: `attendance.take_any`
+  records like a coach inside the window; `attendance.correct` corrects a locked session, and
+  the page always asks for the reason the service requires (the audit entry reads
+  "Administrative correction after the 48-hour coach edit window: …"). Each saved record's
+  change history comes from the existing audit log (`/api/attendance/<id>/history/`).
+* **Substitutes** are assigned and revoked from the session page through the existing
+  services (one active substitute per session, reason required, access window derived by the
+  service); cancelling a session still cancels its active substitute, and reinstating does
+  not bring it back.
+

@@ -4,7 +4,8 @@ import type {
   AcademyPaymentInfo, AttendanceMark, AttendanceSheet, CoachingSession, PaymentProof, RosterStudent,
   AttendanceRecord, AttendanceSummaryResponse, Charge, Competition, CompetitionRegistration, Family, Invoice, Me,
   OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, StudentAttendanceResponse, StudentCompetitionEntry,
-  StudentSelfProfile, StudentSession, TokenResponse, TrainingSession,
+  StudentSelfProfile, StudentSession, TokenResponse, TrainingSession, StaffDashboard, StaffStudent, StaffStudentRow,
+  StudentHistory, TrainingClass, Program, CoachRecord, AuditEntry, StudentEnrollment, StaffSessionSlot,
 } from "./types";
 
 type Query = Record<string, QueryValue>;
@@ -81,6 +82,58 @@ export function endpoints(api: ApiClient) {
     register: (body: { student: number; event: number; competition?: number; notes?: string;
                        responses?: Record<string, unknown> }) =>
       api.post<CompetitionRegistration>("/api/competition-registrations/", body),
+    /* Staff portal (Phase 6E). The backend checks every capability and runs every change
+       through its services (reasons, lifecycle rules, audit); these are thin wrappers. */
+    staffDashboard: (signal?: AbortSignal) => api.get<StaffDashboard>("/api/staff/dashboard/", undefined, signal),
+    staffStudents: (query: { search?: string; status?: string; class?: number; family?: number; page?: number },
+                    signal?: AbortSignal) => api.get<Paginated<StaffStudentRow>>("/api/students/", query, signal),
+    staffStudent: (id: number | string, signal?: AbortSignal) =>
+      api.get<StaffStudent>(`/api/students/${encodeURIComponent(id)}/`, undefined, signal),
+    studentHistory: (id: number | string, signal?: AbortSignal) =>
+      api.get<StudentHistory>(`/api/students/${encodeURIComponent(id)}/history/`, undefined, signal),
+    updateStudent: (id: number, body: Partial<Pick<StaffStudent, "full_name" | "chinese_name" | "gender" |
+                    "date_of_birth" | "school">>) =>
+      api.request<StaffStudent>(`/api/students/${id}/`, { method: "PATCH", body }),
+    changeStudentStatus: (id: number, status: string, reason: string) =>
+      api.post<StaffStudent>(`/api/students/${id}/change-status/`, { status, reason }),
+    enroll: (student: number, trainingClass: number, startDate?: string) =>
+      api.post<StudentEnrollment>("/api/enrollments/", { student, training_class: trainingClass,
+                                                         ...(startDate ? { start_date: startDate } : {}) }),
+    endEnrollment: (id: number, reason: string, endDate?: string) =>
+      api.post<StudentEnrollment>(`/api/enrollments/${id}/end/`, { reason, ...(endDate ? { end_date: endDate } : {}) }),
+    classes: (query: { active?: "1" | "0"; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<TrainingClass>>("/api/classes/", query, signal),
+    trainingClass: (id: number | string, signal?: AbortSignal) =>
+      api.get<TrainingClass>(`/api/classes/${encodeURIComponent(id)}/`, undefined, signal),
+    classRoster: (id: number | string, signal?: AbortSignal) =>
+      api.get<{ id: number; student_no: string; full_name: string; chinese_name: string; gender: string;
+                age: number | null; status: string }[]>(`/api/classes/${encodeURIComponent(id)}/students/`, undefined, signal),
+    createClass: (body: { code: string; name: string; category: string; program: number; venue?: string;
+                          capacity?: number | null; description?: string }) =>
+      api.post<TrainingClass>("/api/classes/", body),
+    updateClass: (id: number, body: Partial<Pick<TrainingClass, "name" | "venue" | "capacity" | "description" |
+                  "is_active" | "category">>) =>
+      api.request<TrainingClass>(`/api/classes/${id}/`, { method: "PATCH", body }),
+    programs: (signal?: AbortSignal) => api.get<Program[]>("/api/programs/", undefined, signal),
+    coaches: (query: { page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<CoachRecord>>("/api/coaches/", query, signal),
+    staffSessions: (query: { date?: string; start?: string; end?: string; class?: number; coach?: number;
+                             status?: string; order?: "asc"; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<CoachingSession>>("/api/sessions/coaching/", query, signal),
+    cancelSession: (id: number, reason: string) => api.post<TrainingSession>(`/api/sessions/${id}/cancel/`, { reason }),
+    reinstateSession: (id: number, reason: string) =>
+      api.post<TrainingSession>(`/api/sessions/${id}/reinstate/`, { reason }),
+    rescheduleSession: (id: number, body: { date?: string; start_time?: string; end_time?: string; reason: string }) =>
+      api.post<TrainingSession>(`/api/sessions/${id}/reschedule/`, body),
+    reassignCoach: (id: number, body: { from_coach: number; to_coach: number; reason: string }) =>
+      api.post<StaffSessionSlot>(`/api/sessions/${id}/reassign-coach/`, body),
+    assignSubstitute: (id: number, body: { substitute: number; replaces?: number; reason: string }) =>
+      api.post<StaffSessionSlot>(`/api/sessions/${id}/assign-substitute/`, body),
+    revokeSubstitute: (id: number, body: { substitute: number; reason: string }) =>
+      api.post<StaffSessionSlot>(`/api/sessions/${id}/revoke-substitute/`, body),
+    attendanceHistory: (recordId: number, signal?: AbortSignal) =>
+      api.get<AuditEntry[]>(`/api/attendance/${recordId}/history/`, undefined, signal),
+
     /* Student portal: always the signed-in student's own record (no student id is sent). */
     myProfile: (signal?: AbortSignal) => api.get<StudentSelfProfile>("/api/students/me/", undefined, signal),
     mySessions: (query: { view?: "today" | "upcoming" | "past" | "cancelled"; page?: number }, signal?: AbortSignal) =>

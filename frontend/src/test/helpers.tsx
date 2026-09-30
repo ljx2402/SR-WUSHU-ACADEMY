@@ -53,13 +53,20 @@ const CAPABILITIES: Record<Role, string[]> = {
     // A super admin holds every capability, including "own children" ones.
     "students.view_own_children", "sessions.view_own_children", "finance.view_own_children",
     "sessions.view_assigned", "attendance.take_assigned",
+    "students.manage", "students.history", "classes.view_all", "classes.manage", "sessions.manage",
+    "roster.view_all", "substitute.assign", "substitute.revoke", "attendance.take_any", "attendance.correct",
+    "coaches.view_all", "coaches.manage", "parents.view_all", "parents.manage",
   ],
   // Mirrors apps/accounts/capabilities.py (front desk may take payments, so sees finance).
-  ADMIN: ["students.view_all", "sessions.view_all", "attendance.view_all", "competition.manage",
+  ADMIN: ["students.view_all", "students.manage", "students.history", "parents.view_all", "parents.manage",
+          "coaches.view_all", "coaches.manage", "classes.view_all", "classes.manage", "sessions.view_all",
+          "sessions.manage", "roster.view_all", "substitute.assign", "substitute.revoke", "attendance.view_all",
+          "attendance.take_any", "attendance.correct", "competition.view", "competition.manage",
           "competition.registrations.view_all", "finance.view_all", "reports.students", "reports.attendance",
           "reports.competitions"],
   FINANCE_ADMIN: ["finance.view_all", "payroll.view_all", "reports.finance", "reports.payroll",
-                  "students.view_directory"],
+                  "students.view_directory", "parents.view_all", "coaches.view_all", "coaches.bank_details",
+                  "competition.view"],
   // Mirrors apps/accounts/capabilities.py.
   COACH: ["students.view_assigned", "classes.view_assigned", "sessions.view_assigned", "roster.view_assigned",
           "attendance.view_assigned", "attendance.take_assigned", "competition.view",

@@ -27,6 +27,12 @@ import { CoachAttendancePage } from "../coach/pages/CoachAttendancePage";
 import { CoachCompetitionsPage } from "../coach/pages/CoachCompetitionsPage";
 import { CoachDashboardPage } from "../coach/pages/CoachDashboardPage";
 import { CoachAttendanceIndexPage, CoachSessionDetailPage, CoachSessionsPage } from "../coach/pages/CoachSessionPages";
+import { StaffClassDetailPage, StaffClassesPage, StaffTimetablePage } from "../staff/pages/StaffClassPages";
+import { StaffDashboardPage } from "../staff/pages/StaffDashboardPage";
+import {
+  StaffAttendancePage, StaffSessionDetailPage, StaffSessionsPage,
+} from "../staff/pages/StaffSessionPages";
+import { StaffStudentDetailPage, StaffStudentsPage } from "../staff/pages/StaffStudentPages";
 import { MyProfilePage } from "../student/pages/MyProfilePage";
 import { StudentAttendancePage } from "../student/pages/StudentAttendancePage";
 import { StudentCompetitionsPage } from "../student/pages/StudentCompetitionsPage";
@@ -45,6 +51,16 @@ const PAGES: Record<string, ReactNode> = {
   "coach-competitions": <CoachCompetitionsPage />,
   "/coach/sessions/:sessionId": <CoachSessionDetailPage />,
   "/coach/sessions/:sessionId/attendance": <CoachAttendancePage />,
+  "staff-dashboard": <StaffDashboardPage />,
+  "staff-students": <StaffStudentsPage />,
+  "staff-classes": <StaffClassesPage />,
+  "staff-timetable": <StaffTimetablePage />,
+  "staff-sessions": <StaffSessionsPage />,
+  "staff-attendance": <StaffAttendancePage />,
+  "/staff/students/:studentId": <StaffStudentDetailPage />,
+  "/staff/classes/:classId": <StaffClassDetailPage />,
+  "/staff/sessions/:sessionId": <StaffSessionDetailPage />,
+  "/staff/sessions/:sessionId/attendance": <CoachAttendancePage portal="staff" />,
   "student-dashboard": <StudentDashboardPage />,
   "student-schedule": <StudentSchedulePage />,
   "student-attendance": <StudentAttendancePage />,
@@ -108,6 +124,7 @@ export const appRoutes: RouteObject[] = [
           { path: "/parent", element: <Navigate to="/parent/dashboard" replace /> },
           { path: "/coach", element: <Navigate to="/coach/dashboard" replace /> },
           { path: "/student", element: <Navigate to="/student/dashboard" replace /> },
+          { path: "/staff", element: <Navigate to="/staff/dashboard" replace /> },
           { path: "/parent/students", element: <Navigate to="/parent/family" replace /> },
           {
             element: <ParentLayout />,

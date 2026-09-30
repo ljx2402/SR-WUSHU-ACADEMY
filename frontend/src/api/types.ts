@@ -353,6 +353,132 @@ export interface CompetitionRegistration {
   form_responses?: FormAnswer[];
 }
 
+/* ------------------------------------------------------------------ staff portal (Phase 6E) */
+/* Academy staff views. What each field holds depends on the caller's capabilities: the
+ * backend returns the full record to `students.view_all` and a directory to finance. */
+
+/** GET /api/students/ as staff with students.view_all: a minimal row (no IC, contacts or medical). */
+export interface StaffStudentRow {
+  id: number;
+  student_no: string;
+  full_name: string;
+  chinese_name: string;
+  gender?: "M" | "F";
+  age?: number | null;
+  status: StudentStatus;
+  join_date?: string | null;
+  family: number | null;
+  family_name: string | null;
+  current_classes?: { id: number; name: string }[];
+  /** Directory rows (finance) carry guardian contacts instead. */
+  guardians?: { name: string; relationship: string; phone: string }[];
+}
+
+export interface StaffGuardian {
+  id: number;
+  relationship: string;
+  is_primary_contact: boolean;
+  is_emergency_contact: boolean;
+  parent: { id: number; full_name: string; ic_number: string; phone: string; alt_phone: string; email: string;
+            address: string; occupation: string; is_active: boolean };
+}
+
+/** GET /api/students/:id/ as staff: the full record (students.view_all) or the directory (finance). */
+export interface StaffStudent {
+  id: number;
+  student_no: string;
+  full_name: string;
+  chinese_name: string;
+  status: StudentStatus;
+  family: number | null;
+  family_name: string | null;
+  gender?: "M" | "F";
+  date_of_birth?: string | null;
+  age?: number | null;
+  ic_number?: string;
+  nationality?: string;
+  school?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  medical_notes?: string;
+  join_date?: string | null;
+  /** Full record: guardianships with the parent; directory: contacts only. */
+  guardians?: (StaffGuardian | { name: string; relationship: string; phone: string })[];
+  current_classes?: StudentEnrollment[];
+}
+
+export interface AuditEntry {
+  id: number;
+  timestamp: string;
+  actor_name: string | null;
+  action: string;
+  object_repr: string;
+  changes: Record<string, unknown>;
+  reason: string;
+}
+
+export interface StudentHistory {
+  status_history: { previous_status: string; status: string; effective_date: string; reason: string }[];
+  enrollments: StudentEnrollment[];
+  changes: AuditEntry[];
+}
+
+export interface ClassSchedule {
+  id: number;
+  weekday: number;
+  weekday_name: string;
+  start_time: string;
+  end_time: string;
+  venue: string;
+  effective_from: string | null;
+  effective_to: string | null;
+}
+
+/** GET /api/classes/ */
+export interface TrainingClass {
+  id: number;
+  code: string;
+  name: string;
+  category: "SCHOOL" | "ADDITIONAL" | "ELITE";
+  program: number;
+  program_name: string;
+  team: number | null;
+  team_name: string | null;
+  venue: string;
+  capacity: number | null;
+  description: string;
+  is_active: boolean;
+  schedules: ClassSchedule[];
+  current_coaches: { id: number; full_name: string }[];
+  /** Staff (classes.view_all) only. */
+  active_students?: number;
+}
+
+export interface Program { id: number; code: string; name: string; is_active: boolean }
+
+/** GET /api/coaches/ (bank details only for coaches.bank_details, never used here). */
+export interface CoachRecord { id: number; full_name: string; phone: string; email: string; is_active: boolean }
+
+export interface StaffSessionSlot extends SessionCoachSlot {
+  access_starts_at: string | null;
+  access_ends_at: string | null;
+  authorized_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface SessionRef { id: number; class_name: string; date: string; start_time: string; end_time: string;
+                              unmarked?: number }
+
+/** GET /api/staff/dashboard/ : counts and alerts derived from the current state (no stored notifications). */
+export interface StaffDashboard {
+  date: string;
+  counts: { sessions_today: number; in_progress: number; cancelled_today: number; substitute_covered_today: number;
+            active_students?: number; active_classes?: number };
+  alerts: { code: "attendance_open" | "attendance_locked" | "session_without_coach" | "class_without_coach";
+            label: string; count: number; sessions?: SessionRef[]; classes?: { id: number; name: string }[] }[];
+}
+
 /* ------------------------------------------------------------------ student portal */
 /* The student is always the signed-in user's own linked record (the backend
  * derives it from their StudentAccount; no student id is ever sent). */
@@ -497,4 +623,6 @@ export interface AttendanceSheet {
     percentage: string | null;
   };
   sheet: { student: number; student_name: string; status: AttendanceMark; remarks: string }[];
+  /** The saved records (ids for their change history; staff and coaches). */
+  records?: (AttendanceRecord & { remarks: string; recorded_by_name: string | null })[];
 }

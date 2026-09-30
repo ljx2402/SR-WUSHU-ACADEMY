@@ -5,6 +5,10 @@ import { Link, useParams } from "react-router";
 import { isApiError } from "../../api/errors";
 import type { AttendanceMark, AttendanceSheet } from "../../api/types";
 import { useServices } from "../../app/services";
+import { can } from "../../auth/access";
+import { useMe } from "../../auth/AuthProvider";
+import { RecordHistory } from "../../staff/RecordHistory";
+import { staffKeys } from "../../staff/components";
 import { AttendanceStateBadge } from "../../domain/attendance";
 import { formatDate, formatDateTime, formatPercentage, formatTime } from "../../domain/format";
 import { PageHeader } from "../../layout/PageHeader";
@@ -36,16 +40,27 @@ function rowsFrom(sheet: AttendanceSheet): Row[] {
   return sheet.sheet.map((r) => ({ student: r.student, name: r.student_name, status: r.status, remarks: r.remarks }));
 }
 
-export function CoachAttendancePage() {
+/**
+ * The attendance sheet. `portal="coach"` (Coach Portal) or `"staff"` (Staff
+ * Portal, Phase 6E): staff with `attendance.take_any` record like a coach, and
+ * those with `attendance.correct` can also correct a locked session, always
+ * with a reason. The backend enforces all of it; the page only follows it.
+ */
+export function CoachAttendancePage({ portal = "coach" }: { portal?: "coach" | "staff" }) {
   const { sessionId = "" } = useParams();
+  const me = useMe();
   const { endpoints } = useServices();
   const queryClient = useQueryClient();
+  const staff = portal === "staff";
+  const keys = staff ? { session: staffKeys.session(sessionId), sheet: staffKeys.sheet(sessionId), all: staffKeys.all }
+    : { session: coachKeys.session(sessionId), sheet: coachKeys.sheet(sessionId), all: coachKeys.all };
+  const sessionUrl = staff ? `/staff/sessions/${sessionId}` : `/coach/sessions/${sessionId}`;
   const session = useQuery({
-    queryKey: coachKeys.session(sessionId),
+    queryKey: keys.session,
     queryFn: ({ signal }) => endpoints.session(sessionId, signal),
   });
   const sheet = useQuery({
-    queryKey: coachKeys.sheet(sessionId),
+    queryKey: keys.sheet,
     queryFn: ({ signal }) => endpoints.attendanceSheet(sessionId, signal),
   });
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -66,15 +81,16 @@ export function CoachAttendancePage() {
       setReason("");
       setError(null);
       setSavedAt(new Date().toISOString());
-      await queryClient.invalidateQueries({ queryKey: coachKeys.all });
+      await queryClient.invalidateQueries({ queryKey: keys.all });
       window.setTimeout(() => statusRef.current?.focus(), 0);
     },
     onError: async (e) => {
       setSavedAt(null);
       if (isApiError(e) && e.kind === "forbidden") {
-        setError("Attendance for this session can no longer be changed by coaches (the 48-hour window has closed, " +
-                 "or you are not assigned to it). Ask an administrator if it needs a correction.");
-        await queryClient.invalidateQueries({ queryKey: coachKeys.sheet(sessionId) });
+        setError(staff ? "You are not allowed to change this session's attendance."
+          : "Attendance for this session can no longer be changed by coaches (the 48-hour window has closed, " +
+            "or you are not assigned to it). Ask an administrator if it needs a correction.");
+        await queryClient.invalidateQueries({ queryKey: keys.sheet });
       } else {
         setError(isApiError(e) ? e.userMessage : "Unable to connect. Please try again.");
       }
@@ -94,13 +110,18 @@ export function CoachAttendancePage() {
   const data = sheet.data!;
   const current = rows!;
   const original = new Map(data.sheet.map((r) => [r.student, r]));
-  const editable = data.state === "OPEN" || data.state === "COMPLETE";
+  // Coaches: while the window is open. Staff: the same with attendance.take_any, and an
+  // administrator correction of a locked session with attendance.correct.
+  const correcting = staff && data.state === "LOCKED" && can(me, "attendance.correct");
+  const editable = correcting || ((data.state === "OPEN" || data.state === "COMPLETE")
+    && (!staff || can(me, "attendance.take_any")));
   const changed = current.filter((r) => {
     const o = original.get(r.student)!;
     return o.status !== r.status || o.remarks !== r.remarks;
   });
   // Changing a mark that was already recorded needs a reason (backend rule).
-  const needsReason = changed.some((r) => original.get(r.student)!.status !== "UNMARKED");
+  // A correction after the window always needs one.
+  const needsReason = correcting || changed.some((r) => original.get(r.student)!.status !== "UNMARKED");
   const marked = current.filter((r) => r.status !== "UNMARKED").length;
   const unmarked = current.length - marked;
 
@@ -123,7 +144,8 @@ export function CoachAttendancePage() {
       return;
     }
     if (needsReason && !reason.trim()) {
-      setError("Give a reason: changing attendance that was already recorded needs one.");
+      setError(correcting ? "Give a reason: a correction after the 48-hour window needs one."
+        : "Give a reason: changing attendance that was already recorded needs one.");
       window.setTimeout(() => document.getElementById("attendance-reason")?.focus(), 0);
       return;
     }
@@ -137,7 +159,9 @@ export function CoachAttendancePage() {
   return (
     <>
       <PageHeader title={title}
-                  crumbs={[{ label: "Coach dashboard", to: "/coach/dashboard" }, { label: s.class_name, to: `/coach/sessions/${s.id}` }]}
+                  crumbs={staff ? [{ label: "Operations", to: "/staff/dashboard" }, { label: "Attendance", to: "/staff/attendance" },
+                                   { label: s.class_name, to: sessionUrl }]
+                    : [{ label: "Coach dashboard", to: "/coach/dashboard" }, { label: s.class_name, to: sessionUrl }]}
                   description={`${formatDate(s.date)}, ${formatTime(s.start_time)}–${formatTime(s.end_time)}${s.venue ? ` · ${s.venue}` : ""}`} />
       <p className="badge-row"><AttendanceStateBadge state={data.state} /></p>
 
@@ -151,9 +175,12 @@ export function CoachAttendancePage() {
         </Alert>
       ) : data.state === "LOCKED" ? (
         <Alert tone="warning" title="Attendance is locked.">
-          <p>The 48-hour coach window closed at {formatDateTime(data.coach_edit_deadline)}. Only an administrator can
-            correct it now, with a reason.</p>
+          <p>The 48-hour coach window closed at {formatDateTime(data.coach_edit_deadline)}. {correcting
+            ? "You can correct it as an administrator: a reason is required and every change is audited."
+            : "Only an administrator can correct it now, with a reason."}</p>
         </Alert>
+      ) : staff && !editable ? (
+        <p className="muted">View only.</p>
       ) : (
         <p className="muted">You can record and correct attendance until {formatDateTime(data.coach_edit_deadline)}.
           Changing a mark that was already saved needs a reason.</p>
@@ -217,7 +244,8 @@ export function CoachAttendancePage() {
           {editable ? (
             <div className="attendance-submit">
               {needsReason ? (
-                <TextAreaField id="attendance-reason" label="Reason for changing saved attendance" required rows={2}
+                <TextAreaField id="attendance-reason" required rows={2}
+                               label={correcting ? "Reason for this correction" : "Reason for changing saved attendance"}
                                value={reason} hint="Stored in the audit log with the change."
                                onChange={(e) => setReason(e.target.value)} />
               ) : null}
@@ -227,7 +255,15 @@ export function CoachAttendancePage() {
           ) : null}
         </form>
       )}
-      <p><Link to={`/coach/sessions/${s.id}`}>Back to the session</Link></p>
+      {staff && data.records?.length && can(me, "attendance.view_all") ? (
+        <section className="page-section" aria-label="Change history">
+          <h2>Change history</h2>
+          <ul className="plain-list">
+            {data.records.map((r) => <li key={r.id}><RecordHistory record={r} /></li>)}
+          </ul>
+        </section>
+      ) : null}
+      <p><Link to={sessionUrl}>Back to the session</Link></p>
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useId, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 interface FieldBase {
   label: string;
@@ -59,6 +59,29 @@ export function TextAreaField({ label, hint, errors = [], id, required, ...rest 
         aria-describedby={describedBy([hintId, errorId])}
         {...rest}
       />
+      {errors.length ? <p id={errorId} className="field-error">{errors.join(" ")}</p> : null}
+    </div>
+  );
+}
+
+/** A labelled native <select> (keyboard, screen-reader and phone friendly). */
+export function SelectField({ label, hint, errors = [], id, required, children, ...rest }: FieldBase &
+  SelectHTMLAttributes<HTMLSelectElement>) {
+  const generated = useId();
+  const inputId = id ?? generated;
+  const hintId = hint ? `${inputId}-hint` : undefined;
+  const errorId = errors.length ? `${inputId}-error` : undefined;
+  return (
+    <div className={`field${errors.length ? " field-invalid" : ""}`}>
+      <label htmlFor={inputId}>
+        {label}
+        {required ? <span className="required" aria-hidden="true"> *</span> : null}
+      </label>
+      {hint ? <p id={hintId} className="field-hint">{hint}</p> : null}
+      <select id={inputId} required={required} aria-invalid={errors.length ? true : undefined}
+              aria-describedby={describedBy([hintId, errorId])} {...rest}>
+        {children}
+      </select>
       {errors.length ? <p id={errorId} className="field-error">{errors.join(" ")}</p> : null}
     </div>
   );

@@ -6,12 +6,12 @@ Authorization is two-layered on every endpoint:
 Records outside the caller's scope return 404.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -25,12 +25,14 @@ from rest_framework.views import APIView
 
 from apps.academy import access
 from apps.academy import services as academy_services
-from apps.academy.models import Enrollment, Family, SessionCoach, Student, TrainingClass, TrainingSession
+from apps.academy.models import (
+    ClassCoach, Enrollment, Family, Program, SessionCoach, Student, TrainingClass, TrainingSession,
+)
 from apps.accounts import services as account_services
 from apps.accounts.capabilities import Cap, can, capabilities_of
 from apps.accounts.models import Coach, Parent
 from apps.attendance import services as attendance_services
-from apps.attendance.models import AttendanceRecord
+from apps.attendance.models import MARKED_STATUSES, AttendanceRecord
 from apps.audit.context import reset_actor, set_actor
 from apps.audit.utils import history_for
 from apps.competitions import registration_forms
@@ -214,7 +216,10 @@ class StudentViewSet(ApiViewMixin, NoDestroyModelViewSet):
         return self._scope
 
     def get_queryset(self):
-        qs = self.scope().queryset().prefetch_related("guardianships__parent")
+        qs = self.scope().queryset().prefetch_related("guardianships__parent").select_related("family")
+        if self.action == "list" and self.scope().full:
+            active = Enrollment.objects.active_on(timezone.localdate()).select_related("training_class")
+            qs = qs.prefetch_related(Prefetch("enrollments", queryset=active, to_attr="active_enrollments"))
         if self.action == "attendance_summary":
             # Attendance is never visible through the finance directory.
             scope = self.scope()
@@ -223,20 +228,29 @@ class StudentViewSet(ApiViewMixin, NoDestroyModelViewSet):
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(full_name__icontains=search) | Q(student_no__icontains=search) | Q(chinese_name__icontains=search))
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
-        return qs.order_by("full_name")
+        params = self.request.query_params
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
+        # Narrowing filters only: they never widen the caller's scope.
+        if id_param(params, "class"):
+            current = Enrollment.objects.active_on(timezone.localdate()).filter(training_class_id=id_param(params, "class"))
+            qs = qs.filter(enrollments__in=current)
+        if id_param(params, "family"):
+            qs = qs.filter(family_id=id_param(params, "family"))
+        return qs.distinct().order_by("full_name")
 
-    def represent(self, student):
-        serializer_class = STUDENT_SERIALIZERS[self.scope().level_for(student.id)]
+    def represent(self, student, listing=False):
+        level = self.scope().level_for(student.id)
+        # Staff lists get a minimal row; the full record is only in the detail view.
+        serializer_class = s.StaffStudentListSerializer if listing and level == access.FULL else STUDENT_SERIALIZERS[level]
         return serializer_class(student, context=self.get_serializer_context()).data
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
-            return self.get_paginated_response([self.represent(st) for st in page])
-        return Response([self.represent(st) for st in queryset])
+            return self.get_paginated_response([self.represent(st, listing=True) for st in page])
+        return Response([self.represent(st, listing=True) for st in queryset])
 
     def retrieve(self, request, *args, **kwargs):
         return Response(self.represent(self.get_object()))
@@ -328,7 +342,16 @@ class TrainingClassViewSet(ApiViewMixin, NoDestroyModelViewSet):
             qs = access.roster_classes_for(self.request.user)
         else:
             qs = access.classes_for(self.request.user)
-        return qs.select_related("program", "team").prefetch_related("schedules")
+        qs = qs.select_related("program", "team").prefetch_related("schedules")
+        if can(self.request.user, Cap.CLASSES_VIEW_ALL) and self.action in READ:
+            # Staff see how many students are currently in each class.
+            today = timezone.localdate()
+            current = Q(enrollments__start_date__lte=today) & (
+                Q(enrollments__end_date__isnull=True) | Q(enrollments__end_date__gte=today))
+            qs = qs.annotate(active_students=Count("enrollments", filter=current, distinct=True))
+        if self.request.query_params.get("active") in ("1", "0"):
+            qs = qs.filter(is_active=self.request.query_params["active"] == "1")
+        return qs
 
     @action(detail=True, methods=["get"])
     def students(self, request, pk=None):
@@ -347,6 +370,15 @@ class TrainingClassViewSet(ApiViewMixin, NoDestroyModelViewSet):
             raise ValidationError({"detail": "Provide start and end as YYYY-MM-DD."})
         created = academy_services.generate_sessions(training_class, start, end, request.user)
         return Response({"created": len(created)}, status=status.HTTP_201_CREATED)
+
+
+class ProgramViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
+    """Programs (disciplines), read only: staff choose one when creating a class."""
+
+    serializer_class = s.ProgramSerializer
+    queryset = Program.objects.all()
+    capabilities = caps(read=Cap.CLASSES_VIEW_ALL)
+    pagination_class = None
 
 
 class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
@@ -396,6 +428,11 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
             qs = qs.filter(date__lte=params["end"])
         if id_param(params, "class"):
             qs = qs.filter(training_class_id=id_param(params, "class"))
+        if id_param(params, "coach") and can(user, Cap.SESSIONS_VIEW_ALL):
+            # Staff only: sessions this coach is assigned to (regular or substitute). For
+            # coaches the scope is always their own and this parameter is ignored.
+            slots = SessionCoach.objects.filter(coach_id=id_param(params, "coach"), status=SessionCoach.Status.ASSIGNED)
+            qs = qs.filter(id__in=slots.values("session_id"))
         if params.get("status"):
             if params["status"] not in TrainingSession.Status.values:
                 raise ValidationError({"status": "Unknown session status."})
@@ -513,6 +550,85 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
             raise NotFound("No substitute authorization for that coach on this session.")
         slot = academy_services.revoke_substitute(slot, request.user, request.data.get("reason", ""))
         return Response(s.SessionCoachSerializer(slot).data)
+
+
+def _session_ref(session, **extra):
+    return {"id": session.id, "class_name": session.training_class.name, "date": session.date,
+            "start_time": session.start_time, "end_time": session.end_time, **extra}
+
+
+class StaffDashboardView(ApiViewMixin, APIView):
+    """The Staff Portal's operational overview (read only, staff who see every
+    session). Every number comes from existing state and services; alerts are
+    queries, not stored notifications:
+
+    * attendance incomplete: sessions of the last 7 days that have started, are
+      not cancelled and have expected students not marked (the attendance
+      service's expected roster); split into still open for coaches and locked
+      (administrator correction needed);
+    * sessions without a coach: scheduled sessions in the next 14 days with no
+      assigned coach (regular or substitute);
+    * classes without a coach: active classes with no current regular coach."""
+
+    capabilities = {"get": Cap.SESSIONS_VIEW_ALL}
+    ATTENDANCE_DAYS = 7
+    COACH_DAYS = 14
+
+    def get(self, request):
+        user = request.user
+        now = timezone.now()
+        today = timezone.localdate()
+        todays = list(TrainingSession.objects.filter(date=today).select_related("training_class")
+                      .prefetch_related("coach_slots"))
+        live = [s for s in todays if s.status != TrainingSession.Status.CANCELLED]
+        counts = {
+            "sessions_today": len(live),
+            "in_progress": sum(1 for s in live if s.starts_at <= now < s.ends_at),
+            "cancelled_today": len(todays) - len(live),
+            "substitute_covered_today": sum(
+                1 for s in live if any(slot.role == SessionCoach.Role.SUBSTITUTE
+                                       and slot.status == SessionCoach.Status.ASSIGNED for slot in s.coach_slots.all())),
+        }
+        if can(user, Cap.STUDENTS_VIEW_ALL):
+            counts["active_students"] = Student.objects.filter(status=Student.Status.ACTIVE).count()
+        if can(user, Cap.CLASSES_VIEW_ALL):
+            counts["active_classes"] = TrainingClass.objects.filter(is_active=True).count()
+
+        # Attendance: expected students without a mark (UNMARKED), per held session.
+        held = [s for s in TrainingSession.objects.exclude(status=TrainingSession.Status.CANCELLED)
+                .filter(date__gte=today - timedelta(days=self.ATTENDANCE_DAYS), date__lte=today)
+                .select_related("training_class").order_by("-date", "-start_time") if s.starts_at <= now]
+        expected = attendance_services.expected_pairs(held)
+        marked = set(AttendanceRecord.objects.filter(session__in=held, status__in=MARKED_STATUSES)
+                     .values_list("session_id", "student_id"))
+        unmarked = {}
+        for pair in expected - marked:
+            unmarked[pair[0]] = unmarked.get(pair[0], 0) + 1
+        open_rows, locked_rows = [], []
+        for session in held:
+            if unmarked.get(session.id):
+                row = _session_ref(session, unmarked=unmarked[session.id])
+                (open_rows if attendance_services.coach_window_open(session, now) else locked_rows).append(row)
+
+        upcoming = (TrainingSession.objects.filter(status=TrainingSession.Status.SCHEDULED, date__gte=today,
+                                                   date__lte=today + timedelta(days=self.COACH_DAYS))
+                    .exclude(id__in=SessionCoach.objects.filter(status=SessionCoach.Status.ASSIGNED).values("session_id"))
+                    .select_related("training_class").order_by("date", "start_time"))
+        no_coach = [_session_ref(s) for s in upcoming if s.ends_at > now]
+        coached = ClassCoach.objects.active_on(today).values("training_class_id")
+        classes = TrainingClass.objects.filter(is_active=True).exclude(id__in=coached).order_by("name")
+
+        alerts = [
+            {"code": "attendance_open", "label": "Attendance not finished (coach window open)",
+             "count": len(open_rows), "sessions": open_rows},
+            {"code": "attendance_locked", "label": "Attendance incomplete after the 48-hour window (administrator correction)",
+             "count": len(locked_rows), "sessions": locked_rows},
+            {"code": "session_without_coach", "label": "Sessions without a coach (next 14 days)",
+             "count": len(no_coach), "sessions": no_coach},
+            {"code": "class_without_coach", "label": "Active classes without a coach",
+             "count": classes.count(), "classes": [{"id": c.id, "name": c.name} for c in classes]},
+        ]
+        return Response({"date": today, "counts": counts, "alerts": alerts})
 
 
 def my_attendance(student):

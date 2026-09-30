@@ -224,6 +224,31 @@ In short:
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
 
+## Staff Core Operations Portal (Phase 6E)
+
+No new capabilities; every page and action uses the existing ones, never the job title:
+
+| Area | Needs | ADMIN | SUPER_ADMIN | FINANCE_ADMIN |
+| --- | --- | --- | --- | --- |
+| Operations dashboard | `sessions.view_all` | ✅ | ✅ | — (403) |
+| Student list / detail | `students.view_all` (full) or `students.view_directory` (directory) | full | full | directory only |
+| Edit student, status, class membership | `students.manage` | ✅ | ✅ | — |
+| Classes, timetable, roster | `classes.view_all`, `roster.view_all` | ✅ | ✅ | — |
+| Create / edit / (de)activate class | `classes.manage` | ✅ | ✅ | — |
+| Sessions: view | `sessions.view_all` | ✅ | ✅ | — |
+| Reschedule, cancel, reinstate, reassign coach | `sessions.manage` | ✅ | ✅ | — |
+| Substitute assign / revoke | `substitute.assign` / `substitute.revoke` | ✅ | ✅ | — |
+| Attendance monitoring, sheet, change history | `attendance.view_all` | ✅ | ✅ | — |
+| Record attendance / correct after 48 h | `attendance.take_any` / `attendance.correct` (reason required) | ✅ | ✅ | — |
+
+The student list returns a minimal staff row (no IC, contact details, medical note or
+guardians); the full record is only in the detail view for `students.view_all`. Guardians'
+IC numbers are masked for anyone without `parents.manage` (unchanged) and are not shown by
+the portal at all. Staff-only query parameters (`coach` on sessions, `class` and `family` on
+students) only narrow the caller's existing scope; for a coach the `coach` parameter is
+ignored. Regular class-coach assignments and timetable slots have no service or API yet and
+stay in Django Admin.
+
 ## Student Portal (Phase 6D)
 
 No new capabilities: the Student Portal uses the STUDENT role's existing ones

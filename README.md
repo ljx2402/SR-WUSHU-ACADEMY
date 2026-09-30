@@ -156,7 +156,10 @@ payments and printable receipts, competition registration). Phase 6C adds the Co
 (today's and upcoming sessions, rosters, attendance on a phone, substitute sessions,
 athletes' competition entries). Phase 6D adds the Student Portal (a read-only view of the
 student's own schedule, attendance, competition entries and results, and basic profile).
-Staff pages follow in 6E–6J.
+Phase 6E adds the Staff Core Operations Portal (operations dashboard with alerts, students,
+classes, timetable, sessions with cancel / reschedule / coach and substitute changes, and
+attendance monitoring with administrator corrections). Finance, payroll, competitions and
+report screens follow in 6F–6J; Django Admin stays available.
 
 ```bash
 cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)

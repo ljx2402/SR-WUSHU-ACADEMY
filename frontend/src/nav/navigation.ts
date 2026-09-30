@@ -19,16 +19,25 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  // Academy staff (SUPER_ADMIN, ADMIN, FINANCE_ADMIN)
-  { id: "staff-students", portal: "staff", label: "Students & families", path: "/staff/students",
+  // Academy staff (SUPER_ADMIN, ADMIN, FINANCE_ADMIN). Core operations (Phase 6E): each page
+  // needs its own existing capability, so FINANCE_ADMIN (students.view_directory only) sees the
+  // student directory and nothing of classes, sessions or attendance.
+  { id: "staff-dashboard", portal: "staff", label: "Operations", path: "/staff/dashboard",
+    capabilities: ["sessions.view_all"], phase: "6E",
+    description: "Today's sessions, attendance to finish and operational alerts." },
+  { id: "staff-students", portal: "staff", label: "Students", path: "/staff/students",
     capabilities: ["students.view_all", "students.view_directory"], phase: "6E",
     description: "Student records, families, guardians and class membership." },
-  { id: "staff-sessions", portal: "staff", label: "Classes & sessions", path: "/staff/sessions",
+  { id: "staff-classes", portal: "staff", label: "Classes", path: "/staff/classes",
+    capabilities: ["classes.view_all"], phase: "6E", description: "Classes, coaches, timetable and rosters." },
+  { id: "staff-timetable", portal: "staff", label: "Timetable", path: "/staff/timetable",
+    capabilities: ["classes.view_all"], phase: "6E", description: "The weekly academy timetable." },
+  { id: "staff-sessions", portal: "staff", label: "Sessions", path: "/staff/sessions",
     capabilities: ["sessions.view_all"], phase: "6E",
-    description: "Timetables, sessions, cancellations, rescheduling and substitute coaches." },
+    description: "Sessions, cancellations, rescheduling, coaches and substitutes." },
   { id: "staff-attendance", portal: "staff", label: "Attendance", path: "/staff/attendance",
-    capabilities: ["attendance.view_all"], phase: "6G",
-    description: "Attendance sheets, unmarked students and administrator corrections." },
+    capabilities: ["attendance.view_all"], phase: "6E",
+    description: "Attendance monitoring, unmarked students and administrator corrections." },
   { id: "staff-competitions", portal: "staff", label: "Competitions", path: "/staff/competitions",
     capabilities: ["competition.registrations.view_all", "competition.manage"], phase: "6H",
     description: "Competitions, events, registrations and results." },
@@ -104,6 +113,10 @@ export interface SubRoute {
 
 export const SUB_ROUTES: readonly SubRoute[] = [
   { path: "/coach/sessions/:sessionId", parent: "coach-sessions" },
+  { path: "/staff/students/:studentId", parent: "staff-students" },
+  { path: "/staff/classes/:classId", parent: "staff-classes" },
+  { path: "/staff/sessions/:sessionId", parent: "staff-sessions" },
+  { path: "/staff/sessions/:sessionId/attendance", parent: "staff-attendance" },
   { path: "/student/sessions/:sessionId", parent: "student-schedule" },
   { path: "/coach/sessions/:sessionId/attendance", parent: "coach-attendance" },
   { path: "/parent/students/:studentId", parent: "parent-family" },

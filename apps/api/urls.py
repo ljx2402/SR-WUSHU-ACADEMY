@@ -14,6 +14,7 @@ router.register("students", views.StudentViewSet, basename="student")
 router.register("enrollments", views.EnrollmentViewSet, basename="enrollment")
 router.register("classes", views.TrainingClassViewSet, basename="class")
 router.register("sessions", views.TrainingSessionViewSet, basename="session")
+router.register("programs", views.ProgramViewSet, basename="program")
 router.register("attendance", views.AttendanceRecordViewSet, basename="attendance")
 router.register("charges", views.ChargeViewSet, basename="charge")
 router.register("families", views.FamilyViewSet, basename="family")
@@ -44,6 +45,7 @@ urlpatterns = [
          name="student-me-attendance"),
     path("students/me/competitions/", views.StudentSelfViewSet.as_view({"get": "competitions"}),
          name="student-me-competitions"),
+    path("staff/dashboard/", views.StaffDashboardView.as_view(), name="staff-dashboard"),
     path("reports/", ReportIndexView.as_view(), name="report-index"),
     path("reports/<str:name>/", ReportView.as_view(), name="report"),
     path("", include(router.urls)),

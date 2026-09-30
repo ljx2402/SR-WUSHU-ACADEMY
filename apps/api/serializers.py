@@ -8,6 +8,7 @@ from apps.academy.models import (
     ClassSchedule,
     Enrollment,
     Guardianship,
+    Program,
     SessionCoach,
     Student,
     TrainingClass,
@@ -140,6 +141,30 @@ class StudentSerializer(serializers.ModelSerializer):
         return EnrollmentSerializer(obj.current_enrollments(), many=True).data
 
 
+class StaffStudentListSerializer(serializers.ModelSerializer):
+    """A row of the staff student list: enough to find a student. The full
+    record (IC, contact details, medical note, guardians) is only in the detail
+    view, for staff who may see it."""
+
+    age = serializers.SerializerMethodField()
+    family_name = serializers.CharField(source="family.name", read_only=True, default=None)
+    current_classes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Student
+        fields = ["id", "student_no", "full_name", "chinese_name", "gender", "age", "status", "join_date",
+                  "family", "family_name", "current_classes"]
+
+    def get_age(self, obj):
+        return obj.age_on(timezone.localdate())
+
+    def get_current_classes(self, obj):
+        enrollments = getattr(obj, "active_enrollments", None)  # prefetched by the staff list
+        if enrollments is None:
+            enrollments = obj.current_enrollments()
+        return [{"id": e.training_class_id, "name": e.training_class.name} for e in enrollments]
+
+
 class OwnStudentSerializer(StudentSerializer):
     """A parent's own child, or a student's own record: personal details, but
     guardians are shown as contacts only (no IC, address, ...)."""
@@ -225,16 +250,34 @@ class ScheduleSerializer(serializers.ModelSerializer):
         fields = ["id", "weekday", "weekday_name", "start_time", "end_time", "venue", "effective_from", "effective_to"]
 
 
+class ProgramSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Program
+        fields = ["id", "code", "name", "is_active"]
+
+
 class TrainingClassSerializer(serializers.ModelSerializer):
     program_name = serializers.CharField(source="program.name", read_only=True)
     team_name = serializers.CharField(source="team.name", read_only=True, default=None)
     schedules = ScheduleSerializer(many=True, read_only=True)
     current_coaches = serializers.SerializerMethodField()
 
+    active_students = serializers.SerializerMethodField()
+
     class Meta:
         model = TrainingClass
         fields = ["id", "code", "name", "category", "program", "program_name", "team", "team_name", "venue",
-                  "capacity", "description", "is_active", "schedules", "current_coaches"]
+                  "capacity", "description", "is_active", "schedules", "current_coaches", "active_students"]
+
+    def get_active_students(self, obj):
+        # Annotated by the class list/detail for staff only (see TrainingClassViewSet).
+        return getattr(obj, "active_students", None)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get("active_students") is None:
+            data.pop("active_students", None)
+        return data
 
     def get_current_coaches(self, obj):
         return [{"id": c.id, "full_name": c.full_name} for c in obj.coaches_on(timezone.localdate())]

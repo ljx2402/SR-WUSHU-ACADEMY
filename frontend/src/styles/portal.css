@@ -163,3 +163,18 @@ fieldset:disabled .mark span { cursor: not-allowed; opacity: 0.7; }
 .result-text { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .tap-link { display: inline-flex; align-items: center; min-height: var(--tap-target); }
 .student-attendance td { vertical-align: middle; }
+
+/* Staff Portal (Phase 6E): filters, alerts and dense tables that stack on phones */
+.filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0 var(--space-3); align-items: end; margin-bottom: var(--space-4); }
+.filter-bar .field { margin-bottom: var(--space-2); min-width: 0; }
+.filter-actions { margin-bottom: var(--space-3); }
+.check-field { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--tap-target); margin-bottom: var(--space-2); }
+.check-field input { width: 1.25rem; height: 1.25rem; }
+.ops-alerts { display: grid; gap: var(--space-3); }
+.ops-alert { border-left: 4px solid var(--color-warning); padding-left: var(--space-3); }
+.ops-alert-title { margin: 0 0 var(--space-1); }
+.status-slot:empty { display: none; }
+.guardian-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.guardian-list .badge { margin-left: var(--space-2); }
+.staff-table td { vertical-align: middle; }
+.record-history summary { min-height: var(--tap-target); display: flex; align-items: center; cursor: pointer; color: var(--color-info); }
