@@ -62,7 +62,7 @@ Enforcement layers:
 Only while the authorization is `ASSIGNED`, the session is not cancelled and the time is inside the
 access window:
 * that one session;
-* its roster, at the coach "ROSTER" detail level: training info, medical notes, emergency contacts;
+* its roster, at the coach "ROSTER" detail level: training info only (no medical notes or emergency contacts);
   this is the same detail a regular coach gets, needed for safety;
 * its attendance.
 

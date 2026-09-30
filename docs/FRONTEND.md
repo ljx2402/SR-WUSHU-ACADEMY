@@ -435,7 +435,7 @@ both sections.
 | `/coach` | redirects to `/coach/dashboard` | – |
 | `/coach/dashboard` | Today (sessions, next session, cancelled / substitute marked, the session in progress with "Take attendance"), attendance to finish, next 7 days | `sessions.view_assigned` |
 | `/coach/sessions` | Today / Upcoming / Past / Cancelled (`?view=`), with role and attendance state per session | `sessions.view_assigned` |
-| `/coach/sessions/:sessionId` | Session detail: date, time, venue, status, regular and substitute coaches, notes, attendance summary, roster with safety information | `sessions.view_assigned` |
+| `/coach/sessions/:sessionId` | Session detail: date, time, venue, status, regular and substitute coaches, notes, attendance summary, roster (training information only) | `sessions.view_assigned` |
 | `/coach/attendance` | Sessions open for attendance (today and the previous two days) | `attendance.take_assigned` |
 | `/coach/sessions/:sessionId/attendance` | Take and correct attendance | `attendance.take_assigned` |
 | `/coach/competitions` | Competition entries of the students the coach coaches, with results | `competition.registrations.view_assigned` |
@@ -449,7 +449,7 @@ family, payroll, payment proof or settings pages (and those URLs show "access de
 | --- | --- |
 | Session lists (dashboard, sessions, attendance index) | `GET /api/sessions/coaching/?date=|start=&end=|status=CANCELLED&order=asc` (new in 6C; scope from `access.roster_sessions_for`) |
 | Session detail | `GET /api/sessions/:id/` |
-| Roster | `GET /api/sessions/:id/roster/` (roster serializer: training and safety information only) |
+| Roster | `GET /api/sessions/:id/roster/` (roster serializer: training information only; no medical notes or emergency contacts for coaches) |
 | Attendance sheet / submit | `GET` / `POST /api/sessions/:id/attendance/` |
 | Competition entries | `GET /api/competition-registrations/` (coach scope; family-only fields removed), `GET /api/competitions/` |
 
@@ -479,18 +479,21 @@ substitute". Substitutes are assigned and revoked by staff only.
 
 ### Privacy
 
-The roster shows name, student no., age, health note and emergency contacts (name,
-relationship, phone) because the backend gives those to a student's coach for safety; no
-IC, address, family or finance data. Competition entries show student, event, entry status
+The roster shows name, Chinese name, student no. and age only. Medical notes and emergency
+contacts are not sent to coaches: the only medical field is a general free-text note (not a
+coaching restriction), and no capability authorizes coaches to see guardians' contacts, so the
+roster serializer leaves both out unless the caller holds `students.view_all` (staff). The
+page does not render them even if a response carried them. No IC, address, family or finance
+data. Competition entries show student, event, entry status
 ("Not yet confirmed" / "Confirmed" / ...) and results; the family's form answers, notes, fees
 and invoices are not sent to coaches at all.
 
 ## Tests
 
-`npm test` runs 133 tests: the Phase 6A suite (61), the Parent Portal suites (55,
+`npm test` runs 134 tests: the Phase 6A suite (61), the Parent Portal suites (55,
 `src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10) and the
-Coach Portal suite (17, `src/coach/test/`: dashboard and menu, session filters, session
-detail and roster, cancelled and unknown sessions, attendance counts and "mark all", saving
+Coach Portal suite (18, `src/coach/test/`: dashboard and menu, session filters, session
+detail and roster without health or contact details (also when a response carried them), cancelled and unknown sessions, attendance counts and "mark all", saving
 only changes, reason for saved-mark changes, 403 late correction, backend validation
 messages, locked and cancelled sheets, attendance index, competition entries without payment
 details, route guards both ways). The Phase 6A suite (Vitest, jsdom) covers: the API client (headers, token, 204, 401,

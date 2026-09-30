@@ -75,7 +75,8 @@ class CoachApiTests(ApiTestCase):
         body = response.json()
         self.assertNotIn("ic_number", body)
         self.assertNotIn("address", body)
-        self.assertEqual(body["emergency_contacts"][0], {"name": "Parent One", "relationship": "MOTHER", "phone": "0123"})
+        self.assertNotIn("emergency_contacts", body)  # no coach authorization for contacts
+        self.assertNotIn("medical_notes", body)
         self.assertEqual(self.client_for(self.coach_a_user).get(f"/api/students/{self.student_2.id}/").status_code, 404)
 
     def test_coach_takes_attendance_and_change_needs_reason(self):

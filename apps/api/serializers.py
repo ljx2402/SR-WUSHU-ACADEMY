@@ -160,7 +160,15 @@ class StudentDirectorySerializer(serializers.ModelSerializer):
 
 
 class RosterStudentSerializer(serializers.ModelSerializer):
-    """What a coach sees: training-relevant info plus emergency contacts only."""
+    """A class or session roster: training-relevant info only.
+
+    The medical note is free text (general health information, not a
+    coaching restriction) and no capability authorizes coaches to see
+    emergency contacts, so both are returned only to staff who can see the
+    full student record (``students.view_all``). Coaches, substitutes and a
+    serializer used without a request get neither: the check fails closed."""
+
+    SENSITIVE = ("medical_notes", "emergency_contacts")
 
     age = serializers.SerializerMethodField()
     emergency_contacts = serializers.SerializerMethodField()
@@ -172,6 +180,14 @@ class RosterStudentSerializer(serializers.ModelSerializer):
 
     def get_age(self, obj):
         return obj.age_on(timezone.localdate())
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        if not can(getattr(request, "user", None), Cap.STUDENTS_VIEW_ALL):
+            for name in self.SENSITIVE:
+                fields.pop(name, None)
+        return fields
 
     def get_emergency_contacts(self, obj):
         contacts = [g for g in obj.guardianships.all() if g.is_emergency_contact]

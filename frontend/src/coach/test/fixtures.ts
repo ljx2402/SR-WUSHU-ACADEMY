@@ -38,13 +38,10 @@ export const lockedPast = session(704, addDays(today, -5), "18:00:00", "Junior T
                                     marked: 3, unmarked: 0, percentage: "66.67" } });
 
 export const roster: RosterStudent[] = [
-  { id: 11, student_no: "A1", full_name: "Aaron Tan", chinese_name: "", gender: "M", age: 12,
-    medical_notes: "Asthma: carries inhaler", status: "ACTIVE",
-    emergency_contacts: [{ name: "Parent A", relationship: "MOTHER", phone: "0191" }] },
+  { id: 11, student_no: "A1", full_name: "Aaron Tan", chinese_name: "", gender: "M", age: 12, status: "ACTIVE" },
   { id: 12, student_no: "A2", full_name: "Beatrice Alexandra Wong Mei Ling Tan", chinese_name: "", gender: "F", age: 13,
-    medical_notes: "", status: "ACTIVE", emergency_contacts: [] },
-  { id: 13, student_no: "A3", full_name: "Chen Tan", chinese_name: "", gender: "M", age: 9, medical_notes: "",
-    status: "ACTIVE", emergency_contacts: [] },
+    status: "ACTIVE" },
+  { id: 13, student_no: "A3", full_name: "Chen Tan", chinese_name: "", gender: "M", age: 9, status: "ACTIVE" },
 ];
 
 export function sheet(state: AttendanceSheet["state"] = "OPEN"): AttendanceSheet {

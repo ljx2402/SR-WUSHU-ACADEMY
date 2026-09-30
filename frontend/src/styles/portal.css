@@ -122,8 +122,6 @@
 .roster-list { list-style: none; margin: 0; padding: 0; }
 .roster-list li { border-bottom: 1px solid var(--color-border); padding: var(--space-2) 0; }
 .roster-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); overflow-wrap: anywhere; }
-.roster-list summary { min-height: var(--tap-target); display: flex; align-items: center; cursor: pointer; color: var(--color-info); }
-.roster-list a { display: inline-flex; min-height: var(--tap-target); align-items: center; }
 
 .attendance-bar { position: sticky; top: var(--topbar-height); z-index: 5; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
 .attendance-bar-unmarked strong { color: var(--color-warning); }

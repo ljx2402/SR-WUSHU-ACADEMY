@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { json, makeMe, renderApp } from "../../test/helpers";
-import { coachRoutes, sheet } from "./fixtures";
+import { coachRoutes, roster, sheet } from "./fixtures";
 
 function requested(fetchImpl: ReturnType<typeof renderApp>["fetchImpl"], path: string) {
   return fetchImpl.mock.calls.map(([url, init]) => ({ url: new URL(String(url), "http://x"), init: init as RequestInit }))
@@ -63,19 +63,29 @@ describe("session list", () => {
 });
 
 describe("session detail", () => {
-  it("shows the session, coaches, attendance summary and roster with safety information", async () => {
-    const { user } = renderApp({ route: "/coach/sessions/701", routes: coachRoutes() });
+  it("shows the session, coaches, attendance summary and roster without health or contact details", async () => {
+    renderApp({ route: "/coach/sessions/701", routes: coachRoutes() });
     expect(await screen.findByRole("heading", { name: "Junior Taolu", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Take attendance" })).toHaveAttribute("href", "/coach/sessions/701/attendance");
     expect(await screen.findByText(/2 students not\s+marked/)).toBeInTheDocument();
     expect(screen.getByText("3 expected · 1 marked · 2 not marked")).toBeInTheDocument();
     const roster = screen.getByRole("heading", { name: "Roster (3)" }).closest("section")!;
     const aaron = within(roster).getByText("Aaron Tan").closest("li")!;
-    expect(within(aaron).getByText("Health note")).toBeInTheDocument();
-    await user.click(within(aaron).getByText("Safety information"));
-    expect(within(aaron).getByText(/Asthma: carries inhaler/)).toBeInTheDocument();
-    expect(within(aaron).getByRole("link", { name: "0191" })).toHaveAttribute("href", "tel:0191");
+    expect(aaron).toHaveTextContent("Aaron Tan · A1 · age 12");
     expect(within(roster).queryByText(/\bIC\b|passport|invoice|\bfee\b/i)).not.toBeInTheDocument();
+    expect(within(roster).queryByText(/health|medical|safety information|emergency contact/i)).not.toBeInTheDocument();
+    expect(within(roster).queryByRole("link", { name: /\d/ })).not.toBeInTheDocument();
+    expect(roster.querySelector('a[href^="tel:"]')).toBeNull();
+  });
+
+  it("never renders health or contact fields even if a response carried them", async () => {
+    const leaked = roster.map((s) => ({ ...s, medical_notes: "Leaked note",
+                                        emergency_contacts: [{ name: "Leaked Contact", relationship: "MOTHER", phone: "0999" }] }));
+    renderApp({ route: "/coach/sessions/701", routes: coachRoutes({ "GET /api/sessions/701/roster/": json(leaked) }) });
+    const list = (await screen.findByRole("heading", { name: "Roster (3)" })).closest("section")!;
+    expect(within(list).getByText("Aaron Tan")).toBeInTheDocument();
+    expect(screen.queryByText(/Leaked/)).not.toBeInTheDocument();
+    expect(screen.queryByText("0999")).not.toBeInTheDocument();
   });
 
   it("a cancelled session says so and offers no attendance", async () => {

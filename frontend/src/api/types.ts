@@ -412,7 +412,8 @@ export interface CoachingSession extends TrainingSession {
   };
 }
 
-/** GET /api/sessions/:id/roster/ : what a coach may see (training and safety information only). */
+/** GET /api/sessions/:id/roster/ as a coach receives it: training information only. The backend
+ *  does not send medical notes or emergency contacts to coaches (no capability authorizes them). */
 export interface RosterStudent {
   id: number;
   student_no: string;
@@ -420,9 +421,7 @@ export interface RosterStudent {
   chinese_name: string;
   gender: "M" | "F";
   age: number | null;
-  medical_notes: string;
   status: string;
-  emergency_contacts: { name: string; relationship: string; phone: string }[];
 }
 
 export type AttendanceMark = "UNMARKED" | "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";

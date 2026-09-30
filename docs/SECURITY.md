@@ -45,7 +45,7 @@ Already sound before Phase 5, and verified again by tests:
 | 1 Unauthenticated attacker | All data | Calls the API or admin without credentials | Every API view requires authentication (401). Admin redirects to login. Print pages need a login. Anonymous API calls throttled 60/min | Internet-exposed login page → lockout and throttle (below). A WAF or reverse-proxy rate limit is recommended |
 | 2 Parent | Other families' children, invoices, payments, receipts, registrations, attendance | Changes ids in URLs, filters and POST bodies | Record scoping returns 404 (tested for 12 endpoints and 3 filters). Ownership is checked before validation | — |
 | 3 Student | Other students | Changes ids | Own record only; no finance, roster or payslip capability (tested) | — |
-| 4 Coach | Other coaches' classes, finance, bank details | Changes session / student / attendance ids | Assigned classes only (404). No finance capability (403). No bank fields | Sees medical notes of students they coach: a deliberate safety requirement |
+| 4 Coach | Other coaches' classes, finance, bank details | Changes session / student / attendance ids | Assigned classes only (404). No finance capability (403). No bank fields | No medical notes or emergency contacts (roster serializer omits them for anyone without `students.view_all`) |
 | 5 ADMIN | Payroll, bank details, role management, payment voids | Direct API or admin requests | Capabilities: 403 on payroll, roles, voids, bank details (tested) | Can record payments and exceptional refunds by design: these need a reason and are audited |
 | 6 FINANCE_ADMIN | Academic records, attendance, roles, payroll finalization | Direct requests | Student directory only; no attendance; `payroll.finalize` is super admin only (tested) | — |
 | 7 SUPER_ADMIN | Everything | Account takeover or misuse | Everything audited (security events super admin only). The last super admin cannot be removed | No two-person rule or 2FA → **production blocker P2** |
@@ -97,7 +97,8 @@ Already sound before Phase 5, and verified again by tests:
 | Field | Who sees it in full |
 |---|---|
 | Student IC, address, phone, email, DOB | Staff with `students.view_all` (ADMIN, SUPER_ADMIN); the student's own parents; the student |
-| Student medical notes | The above, plus the coaches of the student's classes and the authorized substitute (**deliberate: coaches must know allergies and conditions for safety**). Never the finance directory |
+| Student medical notes | The above only. Not coaches or substitutes: the note is general health information, not a coaching restriction, and no capability authorizes it for coaches (a separate training-restriction field with its own capability is deferred). Never the finance directory |
+| Student emergency contacts (guardian name, relationship, phone) | Staff with `students.view_all`, the student's own parents and the student; the finance directory sees guardian contacts. Not coaches or substitutes (no capability authorizes it) |
 | Parent IC | Parent managers (ADMIN, SUPER_ADMIN) and the parent themselves; finance sees `**********1234` |
 | Coach IC, address | Coach managers (admin); not exposed by the API at all |
 | Coach bank, EPF, SOCSO | `coaches.bank_details` only (FINANCE_ADMIN, SUPER_ADMIN), including the payroll report (needed to pay coaches). Never ADMIN, coaches, parents or payslips |

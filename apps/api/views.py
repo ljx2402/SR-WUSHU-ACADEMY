@@ -188,7 +188,7 @@ STUDENT_SERIALIZERS = {
 
 class StudentViewSet(ApiViewMixin, NoDestroyModelViewSet):
     """Staff: full records. Parents: own children. Students: themselves.
-    Coaches: current members of their classes (training info + emergency contacts).
+    Coaches: current members of their classes (training info only; no medical notes or contacts).
     Finance: directory (names and guardian contacts).
 
     Each record is rendered at the level matching how the caller relates to it,
@@ -334,7 +334,7 @@ class TrainingClassViewSet(ApiViewMixin, NoDestroyModelViewSet):
         training_class = self.get_object()
         members = training_class.enrollments.active_on(timezone.localdate())
         qs = Student.objects.filter(enrollments__in=members).distinct().prefetch_related("guardianships__parent")
-        return Response(s.RosterStudentSerializer(qs, many=True).data)
+        return Response(s.RosterStudentSerializer(qs, many=True, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"], url_path="generate-sessions")
     def generate_sessions(self, request, pk=None):
@@ -407,7 +407,7 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
     def roster(self, request, pk=None):
         session = self.get_object()
         students = session.roster().prefetch_related("guardianships__parent")
-        return Response(s.RosterStudentSerializer(students, many=True).data)
+        return Response(s.RosterStudentSerializer(students, many=True, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["get", "post"])
     def attendance(self, request, pk=None):

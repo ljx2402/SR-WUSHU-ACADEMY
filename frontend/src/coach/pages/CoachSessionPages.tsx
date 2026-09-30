@@ -10,7 +10,7 @@ import { academyToday, addDays, formatDate, formatDateTime, formatTime } from ".
 import { PageHeader } from "../../layout/PageHeader";
 import { LoadMore, Section, DefinitionList } from "../../parent/components";
 import { usePagedList } from "../../parent/queries";
-import { Alert, Badge } from "../../ui/primitives";
+import { Alert } from "../../ui/primitives";
 import { ErrorState, LoadingState, NotFoundState } from "../../ui/states";
 import { SessionCards, coachKeys } from "../components";
 
@@ -170,7 +170,7 @@ export function CoachSessionDetailPage() {
       </Section>
 
       <Section title={`Roster${roster.data ? ` (${roster.data.length})` : ""}`}>
-        <p className="muted">Students expected at this session. Safety information is for coaching use only.</p>
+        <p className="muted">Students expected at this session.</p>
         {roster.isPending ? <LoadingState /> : roster.isError ? <ErrorState error={roster.error} onRetry={() => roster.refetch()} /> : (
           roster.data.length ? (
             <ul className="roster-list">
@@ -180,21 +180,7 @@ export function CoachSessionDetailPage() {
                     <strong>{student.full_name}</strong>
                     {student.chinese_name ? <span className="muted"> {student.chinese_name}</span> : null}
                     <span className="muted"> · {student.student_no}{student.age !== null ? ` · age ${student.age}` : ""}</span>
-                    {student.medical_notes ? <Badge tone="warning">Health note</Badge> : null}
                   </div>
-                  {student.medical_notes || student.emergency_contacts.length ? (
-                    <details>
-                      <summary>Safety information</summary>
-                      {student.medical_notes ? <p className="prewrap"><strong>Health:</strong> {student.medical_notes}</p> : null}
-                      {student.emergency_contacts.length ? (
-                        <ul className="plain-list">
-                          {student.emergency_contacts.map((c) => (
-                            <li key={`${c.name}-${c.phone}`}>Emergency contact: {c.name} ({c.relationship.toLowerCase()}) · <a href={`tel:${c.phone}`}>{c.phone}</a></li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </details>
-                  ) : null}
                 </li>
               ))}
             </ul>

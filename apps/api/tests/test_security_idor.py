@@ -281,9 +281,8 @@ class SensitiveFieldTests(SecurityTestCase):
         self.assertEqual((full["ic_number"], full["medical_notes"]), (self.IC, "Asthma"))
         own = self.api(self.parent_1_user).get(student_url).json()           # own child
         self.assertEqual((own["ic_number"], own["medical_notes"]), (self.IC, "Asthma"))
-        coach = self.api(self.coach_a_user).get(student_url).json()           # roster: safety info only
-        self.assertEqual(coach["medical_notes"], "Asthma")
-        for field in ("ic_number", "address", "phone", "email", "guardians"):
+        coach = self.api(self.coach_a_user).get(student_url).json()           # roster: training info only
+        for field in ("ic_number", "address", "phone", "email", "guardians", "medical_notes", "emergency_contacts"):
             self.assertNotIn(field, coach)
         directory = self.api(self.finance_user).get(student_url).json()       # finance directory
         for field in ("ic_number", "medical_notes", "address", "date_of_birth"):

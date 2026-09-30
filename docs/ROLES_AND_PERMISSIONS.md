@@ -39,7 +39,7 @@ Student detail levels (`access.StudentScope`):
 |---|---|---|
 | FULL | staff with `students.view_all` | complete record, guardians with full details |
 | OWN | own child (parent) or own record (student) | personal details; guardians as contacts only (name, relationship, phone) |
-| ROSTER | coach, for students in their classes / substitute session | training info, medical notes, emergency contacts |
+| ROSTER | coach, for students in their classes / substitute session | training info only (no medical notes, no emergency contacts) |
 | DIRECTORY | finance | student no., names, status, guardian contacts |
 
 ## Changing roles
@@ -214,9 +214,10 @@ ADMIN, parents and students have no payroll access and never see coach bank deta
 Sign-in, token expiry, the brute-force lockout, revocation rules, audit masking, and who may see
 IC numbers, medical notes and bank details are described in `SECURITY.md` ("Controls now in place").
 In short:
-* medical notes are visible to staff, the student's own parents and the student, and the coaches of
-  the student's classes, including an authorized substitute during their window (a safety
-  requirement);
+* medical notes are visible to staff, the student's own parents and the student. Coaches and
+  substitutes do not receive them (nor emergency contacts): the note is general health
+  information, not a coaching restriction, and no capability authorizes coach access. A
+  dedicated training-restriction field with its own capability is a deferred design item;
 * bank details are visible to `coaches.bank_details` only;
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
@@ -233,7 +234,7 @@ coach, never from an id in the request:
 | Data | Coach sees |
 | --- | --- |
 | Sessions, rosters, attendance | Their current classes' sessions; a substitute session only while the authorization is open (`roster_sessions_for`). Others → 404 |
-| Students | Roster level only: name, student no., gender, age, medical notes, status, emergency contacts (name, relationship, phone). No IC, address, contact details, family or guardians |
+| Students | Roster level only: name, Chinese name, student no., gender, age, status. No medical notes, emergency contacts, IC, address, contact details, family or guardians |
 | Competition entries | Entries of students they coach: student, event, status, result. **Not** the family's form answers, notes, fee, fee status or invoice (removed from the response for coach-only viewers in 6C) |
 | Finance, families, parents, payment proofs, payment information, receipts, refunds | Nothing (403) |
 | Payroll | Only their own finalized payslips (`payroll.view_own`, unchanged); no payroll runs, no other coach's payslips. Not shown in the Coach Portal (payroll screens are Phase 6I) |

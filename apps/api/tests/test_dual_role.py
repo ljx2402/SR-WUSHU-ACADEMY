@@ -52,8 +52,9 @@ class CoachParentTests(AcademyTestCase):
         self.assertNotIn("ic_number", coached)
         self.assertNotIn("address", coached)
         self.assertNotIn("guardians", coached)
-        self.assertEqual(coached["medical_notes"], "Asthma")
-        self.assertEqual(coached["emergency_contacts"], [{"name": "Parent One", "relationship": "MOTHER", "phone": "0123"}])
+        self.assertNotIn("medical_notes", coached)       # not shown to coaches
+        self.assertNotIn("emergency_contacts", coached)
+        self.assertIn("medical_notes", own)               # the parent's own-child view is unchanged
 
     def test_parent_role_never_opens_coach_access_to_childs_class(self):
         self.assertEqual(self.client.get(f"/api/sessions/{self.session_b.pk}/").status_code, 200)  # timetable
@@ -119,7 +120,8 @@ class OtherRoleCombinationTests(AcademyTestCase):
         client.force_authenticate(user)
         own = client.get(f"/api/students/{self.student_1.pk}/").json()
         other = client.get(f"/api/students/{self.student_2.pk}/").json()
-        self.assertIn("medical_notes", own)       # roster view: coaches class A
+        self.assertEqual(own["full_name"], self.student_1.full_name)  # roster view: coaches class A
+        self.assertNotIn("medical_notes", own)
         self.assertNotIn("medical_notes", other)  # finance directory view
         self.assertEqual(client.get(f"/api/sessions/{self.session_b.pk}/roster/").status_code, 404)
 

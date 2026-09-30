@@ -144,8 +144,7 @@ class AttendanceTests(CoachPortalTestCase):
         roster = self.api(self.coach_a_user).get(f"/api/sessions/{self.session_a.pk}/roster/").json()
         self.assertEqual({r["full_name"] for r in roster}, {"Ali", "Raj"})
         for row in roster:
-            self.assertEqual(set(row), {"id", "student_no", "full_name", "chinese_name", "gender", "age",
-                                        "medical_notes", "status", "emergency_contacts"})
+            self.assertEqual(set(row), {"id", "student_no", "full_name", "chinese_name", "gender", "age", "status"})
 
     def test_mark_all_then_counts_exclude_unmarked(self):
         saved = self.submit(self.coach_a_user, self.session_a, [
@@ -301,3 +300,86 @@ class FamilyFinanceAndCompetitionIsolationTests(CoachPortalTestCase):
         self.assertEqual((family["notes"], family["fee"]), ("Family note", "20.00"))
         self.assertIn("invoice", self.api(self.admin_user).get(
             f"/api/competition-registrations/{self.reg_ali.pk}/").json())
+
+
+class SensitiveRosterDataTests(CoachPortalTestCase):
+    """Medical notes and emergency contacts are not coach data: no capability
+    grants them to coaches, so the API leaves them out of every coach view."""
+
+    SENSITIVE = ("medical_notes", "emergency_contacts")
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.student_1.medical_notes = "Test note"
+        cls.student_1.save()
+
+    def coach_views(self, user, session):
+        client = self.api(user)
+        rosters = {
+            "session roster": client.get(f"/api/sessions/{session.pk}/roster/"),
+            "class students": client.get(f"/api/classes/{session.training_class_id}/students/"),
+        }
+        for label, response in rosters.items():
+            self.assertEqual(response.status_code, 200, label)
+            yield label, response.json()
+        detail = client.get(f"/api/students/{self.student_1.pk}/")
+        self.assertEqual(detail.status_code, 200)
+        yield "student detail", [detail.json()]
+        listing = client.get("/api/students/").json()
+        yield "student list", listing.get("results", listing)
+
+    def assert_hidden(self, rows, label):
+        self.assertTrue(rows, label)
+        for row in rows:
+            for field in self.SENSITIVE:
+                self.assertNotIn(field, row, f"{label}: {field}")
+            self.assertNotIn("Test note", str(row), label)
+            self.assertNotIn("0123", str(row), label)  # Parent One's phone
+
+    def test_regular_coach_never_receives_medical_notes_or_emergency_contacts(self):
+        for label, rows in self.coach_views(self.coach_a_user, self.session_a):
+            with self.subTest(view=label):
+                self.assert_hidden(rows, label)
+
+    def test_substitute_never_receives_them_either(self):
+        assign_substitute(self.tomorrow_a, self.coach_b, self.coach_a, self.admin_user, "Coach A away")
+        client = self.api(self.coach_b_user)
+        roster = client.get(f"/api/sessions/{self.tomorrow_a.pk}/roster/")
+        self.assertEqual(roster.status_code, 200)
+        self.assert_hidden(roster.json(), "substitute roster")
+        self.assert_hidden([client.get(f"/api/students/{self.student_1.pk}/").json()], "substitute detail")
+
+    def test_query_parameters_cannot_bring_the_fields_back(self):
+        client = self.api(self.coach_a_user)
+        for params in ({"fields": "medical_notes,emergency_contacts"}, {"expand": "emergency_contacts"},
+                       {"coach": self.coach_b.pk}, {"include": "medical_notes"}):
+            with self.subTest(params=params):
+                response = client.get(f"/api/sessions/{self.session_a.pk}/roster/", params)
+                self.assertEqual(response.status_code, 200)
+                self.assert_hidden(response.json(), str(params))
+                self.assert_hidden([client.get(f"/api/students/{self.student_1.pk}/", params).json()], str(params))
+
+    def test_serializer_without_a_request_fails_closed(self):
+        from apps.api.serializers import RosterStudentSerializer
+        self.assert_hidden([RosterStudentSerializer(self.student_1).data], "no request")
+
+    def test_staff_and_parent_views_are_unchanged(self):
+        admin = self.api(self.admin_user)
+        roster = {r["id"]: r for r in admin.get(f"/api/sessions/{self.session_a.pk}/roster/").json()}
+        self.assertEqual(roster[self.student_1.pk]["medical_notes"], "Test note")
+        self.assertEqual(roster[self.student_1.pk]["emergency_contacts"],
+                         [{"name": "Parent One", "relationship": "MOTHER", "phone": "0123"}])
+        members = {r["id"]: r for r in admin.get(f"/api/classes/{self.class_a.pk}/students/").json()}
+        self.assertEqual(members[self.student_1.pk]["medical_notes"], "Test note")
+        self.assertEqual(admin.get(f"/api/students/{self.student_1.pk}/").json()["medical_notes"], "Test note")
+        own = self.api(self.parent_1_user).get(f"/api/students/{self.student_1.pk}/").json()
+        self.assertEqual(own["medical_notes"], "Test note")
+        self.assertEqual(own["guardians"], [{"name": "Parent One", "relationship": "MOTHER", "phone": "0123"}])
+
+    def test_coach_b_still_cannot_reach_coach_a_students(self):
+        client = self.api(self.coach_b_user)
+        for url in (f"/api/sessions/{self.session_a.pk}/roster/", f"/api/classes/{self.class_a.pk}/students/",
+                    f"/api/students/{self.student_1.pk}/"):
+            with self.subTest(url=url):
+                self.assertEqual(client.get(url).status_code, 404)
