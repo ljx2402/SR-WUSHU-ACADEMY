@@ -67,8 +67,9 @@ const CAPABILITIES: Record<Role, string[]> = {
   PARENT: ["students.view_own_children", "sessions.view_own_children", "attendance.view_own_children",
            "finance.view_own_children", "finance.proofs.upload_own", "competition.registrations.view_own_children",
            "competition.register_own_children"],
-  STUDENT: ["students.view_self", "sessions.view_self", "attendance.view_self",
-            "competition.registrations.view_self"],
+  // Mirrors apps/accounts/capabilities.py (read-only, own record).
+  STUDENT: ["students.view_self", "classes.view_self", "sessions.view_self", "attendance.view_self",
+            "competition.view", "competition.registrations.view_self"],
 };
 
 export function makeMe(roles: Role[], extra: Partial<Me> = {}): Me {

@@ -26,6 +26,8 @@ export function DashboardPage() {
   if (portals.length === 1 && portals[0] === "parent") return <Navigate to="/parent/dashboard" replace />;
   // A coach-only account goes straight to the Coach Portal dashboard.
   if (portals.length === 1 && portals[0] === "coach") return <Navigate to="/coach/dashboard" replace />;
+  // A student-only account goes straight to the Student Portal dashboard.
+  if (portals.length === 1 && portals[0] === "student") return <Navigate to="/student/dashboard" replace />;
   const staff = inPortal(me, "staff");
   const seesSessions = can(me, ["sessions.view_all", "sessions.view_assigned", "sessions.view_own_children",
                                 "sessions.view_self"]);
@@ -192,7 +194,10 @@ function StudentCard({ me }: { me: Me }) {
   return (
     <Card title="My training">
       {me.student ? (
-        <p>{me.student.full_name}{me.student.student_no ? <span className="muted"> · {me.student.student_no}</span> : null}</p>
+        <>
+          <p>{me.student.full_name}{me.student.student_no ? <span className="muted"> · {me.student.student_no}</span> : null}</p>
+          <p><Link to="/student/dashboard">My dashboard</Link></p>
+        </>
       ) : <EmptyState message="Your student record is not linked yet." />}
     </Card>
   );

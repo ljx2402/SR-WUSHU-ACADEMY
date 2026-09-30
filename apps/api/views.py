@@ -181,13 +181,14 @@ class CoachViewSet(ApiViewMixin, NoDestroyModelViewSet):
 STUDENT_SERIALIZERS = {
     access.FULL: s.StudentSerializer,
     access.OWN: s.OwnStudentSerializer,
+    access.SELF: s.SelfStudentSerializer,
     access.ROSTER: s.RosterStudentSerializer,
     access.DIRECTORY: s.StudentDirectorySerializer,
 }
 
 
 class StudentViewSet(ApiViewMixin, NoDestroyModelViewSet):
-    """Staff: full records. Parents: own children. Students: themselves.
+    """Staff: full records. Parents: own children. Students: themselves (basic profile only).
     Coaches: current members of their classes (training info only; no medical notes or contacts).
     Finance: directory (names and guardian contacts).
 
@@ -368,6 +369,19 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
         reassign_coach=Cap.SESSIONS_MANAGE,
     )
     STAFF_ACTIONS = {"roster", "attendance", "coaching"}
+    # Seeing sessions only as a student: the student-safe representation.
+    BROADER = (Cap.SESSIONS_VIEW_ALL, Cap.SESSIONS_VIEW_ASSIGNED, Cap.SESSIONS_VIEW_OWN_CHILDREN)
+
+    def get_serializer_class(self):
+        if self.action in READ and access.student_view(self.request.user, self.BROADER):
+            return s.StudentSessionSerializer
+        return super().get_serializer_class()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.action in READ and access.student_view(self.request.user, self.BROADER):
+            context["my_status"] = my_attendance(access.student_of(self.request.user))
+        return context
 
     def get_queryset(self):
         user = self.request.user
@@ -499,6 +513,95 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
             raise NotFound("No substitute authorization for that coach on this session.")
         slot = academy_services.revoke_substitute(slot, request.user, request.data.get("reason", ""))
         return Response(s.SessionCoachSerializer(slot).data)
+
+
+def my_attendance(student):
+    """{session_id: status} of one student's own attendance records."""
+    return dict(AttendanceRecord.objects.filter(student=student).values_list("session_id", "status"))
+
+
+class StudentSelfViewSet(ApiViewMixin, viewsets.GenericViewSet):
+    """The Student Portal: ``/api/students/me/...``.
+
+    The student is always the signed-in user's own linked student record
+    (``StudentAccount`` + STUDENT role, via ``access``); no student id is ever
+    read from the request. Read only: students cannot register, withdraw, mark
+    or correct attendance, or edit their profile."""
+
+    capabilities = {
+        "profile": Cap.STUDENTS_VIEW_SELF,
+        "sessions": Cap.SESSIONS_VIEW_SELF,
+        "session": Cap.SESSIONS_VIEW_SELF,
+        "attendance": Cap.ATTENDANCE_VIEW_SELF,
+        "competitions": Cap.COMPETITION_REGISTRATIONS_VIEW_SELF,
+    }
+    VIEWS = ("today", "upcoming", "past", "cancelled")
+
+    def me(self):
+        student = access.student_of(self.request.user)
+        if student is None:
+            raise NotFound("No student record is linked to this account.")
+        return student
+
+    def profile(self, request):
+        return Response(s.SelfStudentSerializer(self.me()).data)
+
+    def _sessions(self, student):
+        return access.student_sessions(student).select_related("training_class").prefetch_related("coach_slots__coach")
+
+    def sessions(self, request):
+        student = self.me()
+        qs = self._sessions(student)
+        view = request.query_params.get("view", "")
+        now = timezone.localtime()
+        today, now_time = now.date(), now.time()
+        cancelled = TrainingSession.Status.CANCELLED
+        if view and view not in self.VIEWS:
+            raise ValidationError({"view": f"Must be one of: {', '.join(self.VIEWS)}."})
+        if view == "today":
+            qs = qs.filter(date=today).order_by("start_time")
+        elif view == "upcoming":
+            qs = qs.exclude(status=cancelled).filter(Q(date__gt=today) | Q(date=today, end_time__gt=now_time))
+            qs = qs.order_by("date", "start_time")
+        elif view == "past":
+            qs = qs.exclude(status=cancelled).filter(Q(date__lt=today) | Q(date=today, end_time__lte=now_time))
+            qs = qs.order_by("-date", "-start_time")
+        elif view == "cancelled":
+            qs = qs.filter(status=cancelled).order_by("-date", "-start_time")
+        else:
+            qs = qs.order_by("-date", "-start_time")
+        page = self.paginate_queryset(qs)
+        data = s.StudentSessionSerializer(page, many=True, context={"my_status": my_attendance(student)}).data
+        return self.get_paginated_response(data)
+
+    def session(self, request, pk=None):
+        student = self.me()
+        session = get_object_or_404(self._sessions(student), pk=pk)
+        return Response(s.StudentSessionSerializer(session, context={"my_status": my_attendance(student)}).data)
+
+    def attendance(self, request):
+        """Own attendance: the summary from the attendance service (UNMARKED
+        reported separately, never in the percentage) and one row per held,
+        non-cancelled session the student was expected at."""
+        student = self.me()
+        rows = attendance_services.student_history(student, access.student_sessions(student))
+        return Response({
+            "summary": summary_json(attendance_services.student_summary(student)),
+            "sessions": [
+                {"session": row["session"].id, "date": row["session"].date, "start_time": row["session"].start_time,
+                 "end_time": row["session"].end_time, "class_name": row["session"].training_class.name,
+                 "status": row["status"]}
+                for row in rows
+            ],
+        })
+
+    def competitions(self, request):
+        student = self.me()
+        qs = (CompetitionRegistration.objects.filter(student=student)
+              .exclude(event__competition__status=Competition.Status.DRAFT)
+              .select_related("event__competition", "result")
+              .order_by("-event__competition__start_date", "event__name"))
+        return Response(s.StudentCompetitionEntrySerializer(qs, many=True).data)
 
 
 class AttendanceRecordViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):

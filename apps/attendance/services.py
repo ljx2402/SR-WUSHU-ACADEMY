@@ -267,3 +267,17 @@ def student_summary(student, training_class=None, start=None, end=None):
     summary["unmarked"] = len(expected - marked)
     return summary
 
+
+def student_history(student, sessions, at=None):
+    """A student's own attendance, one row per session they were expected at
+    that has started and was not cancelled (newest first), with their status or
+    UNMARKED. Future and cancelled sessions have no attendance and are left
+    out, so they never read as absences. ``sessions`` is the caller's scope
+    (``access.student_sessions``)."""
+    at = at or timezone.now()
+    held = [s for s in sessions.exclude(status=TrainingSession.Status.CANCELLED)
+            .filter(date__lte=timezone.localtime(at).date()).select_related("training_class")
+            .order_by("-date", "-start_time") if s.starts_at <= at]
+    records = {r.session_id: r for r in AttendanceRecord.objects.filter(student=student, session__in=[s.id for s in held])}
+    return [{"session": s, "status": records[s.id].status if s.id in records else AttendanceStatus.UNMARKED}
+            for s in held]

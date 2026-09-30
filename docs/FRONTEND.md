@@ -7,8 +7,8 @@ to *show*, the API decides what is *allowed*.
 
 Phase 6A delivered the foundation: sign-in, the application shell, navigation, the design
 system, the API client, route protection and a dashboard built from real API data. Phase 6B
-added the **Parent Portal** and Phase 6C the **Coach Portal** (see below). The other
-portals are built in later phases (6D–6J); until then each of their pages exists, is protected, and says "This page is not
+added the **Parent Portal**, Phase 6C the **Coach Portal** and Phase 6D the **Student
+Portal** (see below). The staff pages are built in later phases (6E–6J); until then each of their pages exists, is protected, and says "This page is not
 available yet" (no invented data).
 
 ## Technology (and why)
@@ -488,10 +488,55 @@ data. Competition entries show student, event, entry status
 ("Not yet confirmed" / "Confirmed" / ...) and results; the family's form answers, notes, fees
 and invoices are not sent to coaches at all.
 
+## Student Portal (Phase 6D)
+
+For the STUDENT role: a read-only view of the student's own training, phone-first. It uses
+the narrow `/api/students/me/...` endpoints; the backend derives the student from the
+signed-in account (`StudentAccount` + STUDENT role) and never reads a student id from the
+request. A student-only account is sent from `/dashboard` to `/student/dashboard`; a student
+who also has another role keeps the general dashboard and sees each section.
+
+### Routes
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/student` | redirects to `/student/dashboard` | – |
+| `/student/dashboard` | Sessions today, next session (the first not yet started), attendance percentage (backend), today's sessions, upcoming competitions and recent results | `sessions.view_self` |
+| `/student/schedule` | Today / Upcoming / Past / Cancelled (`?view=`), own attendance per session | `sessions.view_self` |
+| `/student/sessions/:sessionId` | Session detail: class, date, time, venue, status, coach names, own attendance. Another student's session = not found | `sessions.view_self` |
+| `/student/attendance` | Backend summary (UNMARKED separate, not in the percentage) and one row per session that has taken place | `attendance.view_self` |
+| `/student/competitions` | Own entries: competition, dates, venue, event, entry status, result, rules (plain text) | `competition.registrations.view_self` |
+| `/student/profile` | Basic profile and current classes, read only | `students.view_self` |
+
+### API
+
+| Data | Endpoint |
+| --- | --- |
+| Profile | `GET /api/students/me/` (`SelfStudentSerializer`) |
+| Sessions | `GET /api/students/me/sessions/?view=&page=`, `GET /api/students/me/sessions/:id/` (`StudentSessionSerializer`) |
+| Attendance | `GET /api/students/me/attendance/` (summary from the attendance service + rows) |
+| Competitions and results | `GET /api/students/me/competitions/` (`StudentCompetitionEntrySerializer`) |
+
+### Privacy
+
+No IC / passport, date of birth, address, phone, email, medical note, guardians, emergency
+contacts, family, fees, invoices, payments, payment proofs, registration answers or notes,
+staff session notes, coach remarks or other students are sent to a student login; the pages
+could not show them. Nothing in the portal writes: no register, withdraw, attendance or
+profile editing controls. The menu has only the student pages (no finance, family, coach,
+admin or payroll).
+
 ## Tests
 
-`npm test` runs 134 tests: the Phase 6A suite (61), the Parent Portal suites (55,
-`src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10) and the
+`npm test` runs 151 tests: the Phase 6A suite (61), the Parent Portal suites (55,
+`src/parent/test/`: portal 31, payment proofs 14, competition registration forms 10), the
+Student Portal suite (17, `src/student/test/`: dashboard KPIs and sections, landing and
+`/student` redirect, menu without finance/family/coach/admin pages, loading and error states,
+schedule filters sent to the API without any student id, session detail without roster or
+notes, cancelled / future / unknown sessions, attendance with the backend percentage and
+UNMARKED separate, no recalculation, competitions and results without fees or answers and
+rules as plain text, read-only profile without private fields, route guards both ways, a
+student who is also a parent, phone menu and labelled table cells) and the
 Coach Portal suite (18, `src/coach/test/`: dashboard and menu, session filters, session
 detail and roster without health or contact details (also when a response carried them), cancelled and unknown sessions, attendance counts and "mark all", saving
 only changes, reason for saved-mark changes, 403 late correction, backend validation
@@ -527,7 +572,7 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 
 ## Known limitations
 
-* Staff and student portal pages are placeholders until their phase (6D–6J). Coach payslips
+* Staff pages are placeholders until their phase (6E–6J). Coach payslips
   (the backend's existing `payroll.view_own`) are not shown in the Coach Portal; payroll
   screens are Phase 6I.
   Notifications and recent activity are marked "not available yet": the backend has no

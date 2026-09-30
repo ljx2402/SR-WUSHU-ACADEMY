@@ -353,6 +353,61 @@ export interface CompetitionRegistration {
   form_responses?: FormAnswer[];
 }
 
+/* ------------------------------------------------------------------ student portal */
+/* The student is always the signed-in user's own linked record (the backend
+ * derives it from their StudentAccount; no student id is ever sent). */
+
+/** GET /api/students/me/ : the basic training profile only (no IC, contacts, family or medical). */
+export interface StudentSelfProfile {
+  id: number;
+  student_no: string;
+  full_name: string;
+  chinese_name: string;
+  gender: "M" | "F";
+  age: number | null;
+  status: StudentStatus;
+  join_date: string | null;
+  current_classes: { class_name: string; category: string; team_name: string | null; start_date: string }[];
+}
+
+/** GET /api/students/me/sessions/ : when, where, coach names and the student's own attendance. */
+export interface StudentSession {
+  id: number;
+  class_name: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  venue: string;
+  status: "SCHEDULED" | "CANCELLED";
+  phase: SessionPhase;
+  coaches: string[];
+  /** Own status once the session has started (UNMARKED if not marked); null before it or if cancelled. */
+  my_attendance: "UNMARKED" | "PRESENT" | "ABSENT" | "LATE" | "EXCUSED" | null;
+}
+
+/** GET /api/students/me/attendance/ */
+export interface StudentAttendanceResponse {
+  summary: {
+    percentage: string | null;
+    present: number; late: number; absent: number; excused: number;
+    expected: number; marked: number; unmarked: number;
+  };
+  sessions: { session: number; date: string; start_time: string; end_time: string; class_name: string;
+              status: "UNMARKED" | "PRESENT" | "ABSENT" | "LATE" | "EXCUSED" }[];
+}
+
+/** GET /api/students/me/competitions/ : entry and result only (no fee, payment, invoice or form answers). */
+export interface StudentCompetitionEntry {
+  id: number;
+  status: "PENDING" | "CONFIRMED" | "WITHDRAWN" | "REJECTED";
+  registered_at: string;
+  competition: { id: number; name: string; organiser: string; venue: string; start_date: string; end_date: string;
+                 status: string; rules: string };
+  event: { name: string; event_type: string; gender: string; min_age: number | null; max_age: number | null;
+           weight_class: string };
+  result: { placing: number | null; medal: string; score: string | null } | null;
+}
+
 /* ------------------------------------------------------------------ payment proofs */
 
 /** GET /api/payment-info/ : how to pay the academy (read-only for parents). */

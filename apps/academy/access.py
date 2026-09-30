@@ -21,7 +21,7 @@ finance, which never widen through another role.
 
 from dataclasses import dataclass, field
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from apps.accounts.capabilities import Cap, can
@@ -82,6 +82,24 @@ def _parent_for(user, capability):
 def _student_for(user, capability):
     student = student_of(user)
     return student if student and can(user, capability) else None
+
+
+def student_view(user, broader):
+    """True when the user sees a kind of data only as a student viewing their
+    own record: they have a student account and none of the ``broader``
+    capabilities (staff, coach or parent). Serializers use this to return the
+    student-safe representation (no staff notes, family answers or finance)."""
+    return student_of(user) is not None and not can(user, broader)
+
+
+def student_sessions(student):
+    """Sessions the student is (or was) expected at: sessions of a class they
+    were a member of on the session date (the roster rule), plus any session
+    where they have an attendance record."""
+    member = Enrollment.objects.filter(
+        student=student, training_class=OuterRef("training_class"), start_date__lte=OuterRef("date"),
+    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=OuterRef("date")))
+    return TrainingSession.objects.filter(Q(Exists(member)) | Q(attendance__student=student)).distinct()
 
 
 def children_for(user):
@@ -154,7 +172,9 @@ def sessions_for(user, at=None):
         q |= Q(training_class__enrollments__student__guardianships__parent=parent)
     student = _student_for(user, Cap.SESSIONS_VIEW_SELF)
     if student:
-        q |= Q(training_class__enrollments__student=student)
+        # Only the sessions the student was expected at (never the class's
+        # sessions from before they joined or after they left).
+        q |= Q(id__in=student_sessions(student).values("id"))
     return TrainingSession.objects.filter(q).distinct()
 
 
@@ -193,8 +213,9 @@ def can_take_attendance(user, session, at=None):
 # --------------------------------------------------------------------------- students
 
 FULL = "FULL"            # complete record (academy staff)
-OWN = "OWN"              # own child or own record: personal details, guardians as contacts only
-ROSTER = "ROSTER"        # coach view: training info, medical notes, emergency contacts
+OWN = "OWN"              # own child: personal details, guardians as contacts only
+SELF = "SELF"            # a student's own record: basic training profile only (no IC, contacts, family, medical)
+ROSTER = "ROSTER"        # coach view: training info only (medical notes / contacts for staff only)
 DIRECTORY = "DIRECTORY"  # finance view: names and guardian contacts
 
 
@@ -203,7 +224,7 @@ class StudentScope:
     """Which students a user may see, and at what level of detail.
 
     Built once per request. When several relationships apply, the most
-    appropriate one wins: staff > own child / self > coach roster > directory.
+    appropriate one wins: staff > own child > self > coach roster > directory.
     """
 
     full: bool = False
@@ -221,8 +242,10 @@ class StudentScope:
     def level_for(self, student_id):
         if self.full:
             return FULL
-        if student_id in self.child_ids or student_id == self.self_id:
+        if student_id in self.child_ids:
             return OWN
+        if student_id == self.self_id:
+            return SELF
         if student_id in self.roster_ids:
             return ROSTER
         if self.directory:

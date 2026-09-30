@@ -102,7 +102,8 @@ describe("dashboard", () => {
   });
 
   it("marks widgets without a backend as not available", async () => {
-    renderApp({ routes: { "GET /api/me/": json(makeMe(["STUDENT"])) } });
+    // A multi-role account keeps the combined dashboard (a student-only one goes to the Student Portal).
+    renderApp({ routes: { "GET /api/me/": json(makeMe(["PARENT", "STUDENT"])) } });
     expect(await screen.findByText(/Recent activity/)).toBeInTheDocument();
     expect(screen.getByText(/Not available yet/)).toBeInTheDocument();
   });

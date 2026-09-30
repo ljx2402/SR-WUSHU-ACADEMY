@@ -77,16 +77,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
     capabilities: ["competition.registrations.view_own_children", "competition.register_own_children"], phase: "6B",
     description: "Competitions and your children's entries." },
 
-  // Student (STUDENT)
-  { id: "student-profile", portal: "student", label: "My profile", path: "/student/profile",
-    capabilities: ["students.view_self"], phase: "6D", description: "Your student record." },
-  { id: "student-timetable", portal: "student", label: "Timetable", path: "/student/timetable",
-    capabilities: ["sessions.view_self"], phase: "6D", description: "Your upcoming sessions." },
-  { id: "student-attendance", portal: "student", label: "Attendance", path: "/student/attendance",
+  // Student (STUDENT): the Student Portal (Phase 6D). Read only, own record only:
+  // no finance, family, registration, attendance-taking or coach pages here.
+  { id: "student-dashboard", portal: "student", label: "My dashboard", path: "/student/dashboard",
+    capabilities: ["sessions.view_self"], phase: "6D", description: "Today, your next session, attendance and competitions." },
+  { id: "student-schedule", portal: "student", label: "My schedule", path: "/student/schedule",
+    capabilities: ["sessions.view_self"], phase: "6D", description: "Your training sessions." },
+  { id: "student-attendance", portal: "student", label: "My attendance", path: "/student/attendance",
     capabilities: ["attendance.view_self"], phase: "6D", description: "Your attendance." },
-  { id: "student-competitions", portal: "student", label: "Competitions", path: "/student/competitions",
+  { id: "student-competitions", portal: "student", label: "My competitions", path: "/student/competitions",
     capabilities: ["competition.registrations.view_self"], phase: "6D",
     description: "Your competition entries and results." },
+  { id: "student-profile", portal: "student", label: "My profile", path: "/student/profile",
+    capabilities: ["students.view_self"], phase: "6D", description: "Your student record." },
 ];
 
 /**
@@ -101,6 +104,7 @@ export interface SubRoute {
 
 export const SUB_ROUTES: readonly SubRoute[] = [
   { path: "/coach/sessions/:sessionId", parent: "coach-sessions" },
+  { path: "/student/sessions/:sessionId", parent: "student-schedule" },
   { path: "/coach/sessions/:sessionId/attendance", parent: "coach-attendance" },
   { path: "/parent/students/:studentId", parent: "parent-family" },
   { path: "/parent/finance/invoices", parent: "parent-finance" },

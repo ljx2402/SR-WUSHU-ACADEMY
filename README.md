@@ -154,7 +154,9 @@ the design system and a dashboard from real API data. Phase 6B adds the Parent P
 (family overview, children's profiles, schedule, attendance, family finance with invoices,
 payments and printable receipts, competition registration). Phase 6C adds the Coach Portal
 (today's and upcoming sessions, rosters, attendance on a phone, substitute sessions,
-athletes' competition entries). Other portals follow in 6D–6J.
+athletes' competition entries). Phase 6D adds the Student Portal (a read-only view of the
+student's own schedule, attendance, competition entries and results, and basic profile).
+Staff pages follow in 6E–6J.
 
 ```bash
 cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)

@@ -32,8 +32,9 @@ class StudentAccountTests(AcademyTestCase):
         self.assertEqual([r["id"] for r in self.rows("/api/students/")], [self.student_3.pk])
         body = self.client.get(f"/api/students/{self.student_3.pk}/").json()
         self.assertEqual(body["student_no"], "S3")
-        # Guardians shown as contacts only: no parent IC / address.
-        self.assertEqual(body["guardians"], [{"name": "Parent Two", "relationship": "MOTHER", "phone": "0124"}])
+        # Own record at the student level: basic profile only (Phase 6D), no guardians or family.
+        for hidden in ("guardians", "family", "ic_number", "address", "medical_notes", "date_of_birth"):
+            self.assertNotIn(hidden, body)
         me = self.client.get("/api/me/").json()
         self.assertEqual((me["roles"], me["student"]["id"]), (["STUDENT"], self.student_3.pk))
 

@@ -25,7 +25,7 @@ Authorization has two layers, and every API endpoint, service and admin page use
 | `FINANCE_ADMIN` | Fee setup, charges, billing, family invoices (draft / issue / void), payments, voids, exceptional refunds, receipts, coach rates and bank details, payroll **preparation**, finance and payroll reports. Sees a student *directory* only; cannot manage academic records or classes; cannot finalize payroll | yes |
 | `COACH` | Own assigned classes, their sessions and rosters, attendance for those classes and for substitute sessions (session only, time-limited), own athletes' competition entries, own finalized payslips | no |
 | `PARENT` | Own children only: profile, timetable, attendance, competition entries and registration, charges, payments and receipts | no |
-| `STUDENT` | Own record only: profile, timetable, attendance, competition entries. Fees and receipts arrive with the invoice phase (P1) | no |
+| `STUDENT` | Own record only, read only (Student Portal, Phase 6D): basic profile, own sessions, own attendance, own competition entries and results. No finance, family, registration or attendance-taking | no |
 
 A user may hold several roles, for example `COACH` + `PARENT` or `ADMIN` + `COACH`. Visibility is
 the union of the roles, but **the detail shown depends on the relationship to each record**. A
@@ -38,7 +38,8 @@ Student detail levels (`access.StudentScope`):
 | Level | Who | Fields |
 |---|---|---|
 | FULL | staff with `students.view_all` | complete record, guardians with full details |
-| OWN | own child (parent) or own record (student) | personal details; guardians as contacts only (name, relationship, phone) |
+| OWN | own child (parent) | personal details; guardians as contacts only (name, relationship, phone) |
+| SELF | own record (student login) | basic training profile only: student no., names, gender, age, status, join date, current classes. No IC / passport, date of birth, address, phone, email, medical note, guardians, emergency contacts or family |
 | ROSTER | coach, for students in their classes / substitute session | training info only (no medical notes, no emergency contacts) |
 | DIRECTORY | finance | student no., names, status, guardian contacts |
 
@@ -214,13 +215,41 @@ ADMIN, parents and students have no payroll access and never see coach bank deta
 Sign-in, token expiry, the brute-force lockout, revocation rules, audit masking, and who may see
 IC numbers, medical notes and bank details are described in `SECURITY.md` ("Controls now in place").
 In short:
-* medical notes are visible to staff, the student's own parents and the student. Coaches and
+* medical notes are visible to staff and the student's own parents (not to the student's own
+  login, which gets the basic profile only, Phase 6D). Coaches and
   substitutes do not receive them (nor emergency contacts): the note is general health
   information, not a coaching restriction, and no capability authorizes coach access. A
   dedicated training-restriction field with its own capability is a deferred design item;
 * bank details are visible to `coaches.bank_details` only;
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
+
+## Student Portal (Phase 6D)
+
+No new capabilities: the Student Portal uses the STUDENT role's existing ones
+(`students.view_self`, `classes.view_self`, `sessions.view_self`, `attendance.view_self`,
+`competition.view`, `competition.registrations.view_self`). The student is always the
+signed-in user's own linked record: `StudentAccount` (one login ↔ one student) **and** the
+STUDENT role (`access.student_of`); no student id is ever read from the request. The narrow
+read-only endpoints are `GET /api/students/me/`, `/api/students/me/sessions/`
+(`?view=today|upcoming|past|cancelled`), `/api/students/me/sessions/<id>/`,
+`/api/students/me/attendance/` and `/api/students/me/competitions/`. A STUDENT without a
+linked record gets 404; a linked user without the role gets 403.
+
+| Data | Student sees |
+| --- | --- |
+| Profile | SELF level only (above). Read only: no edit endpoint for students |
+| Sessions | Only sessions they were expected at (a member of the class on the session date, or with an attendance record): `access.student_sessions`, also used for the student branch of `sessions_for`. Class, date, time, venue, status and the names of the assigned coaches. **Not** staff session notes, substitute authorizations, rosters or other students |
+| Attendance | Own statuses, the attendance service's summary (UNMARKED separate, not in the percentage). **Not** the coach's remarks or who recorded it. Cannot mark, change or correct (403) |
+| Competitions | Own entries: competition, dates, venue, rules, event, entry status and result (placing, medal, score). **Not** fee, fee status, invoice, payment, the family's form answers or notes, staff result remarks, the registration form or event fees. Cannot register, withdraw or edit (403) |
+| Finance, families, parents, payment proofs, payment information, receipts, refunds, payroll, reports | Nothing (403) |
+| Rosters, coach sessions, attendance sheets, substitutes | Nothing (403) |
+
+The generic endpoints (`/api/students/<id>/`, `/api/sessions/`, `/api/attendance/`,
+`/api/competition-registrations/`, `/api/competition-results/`, `/api/competitions/`) give a
+student-only viewer the same student-safe representation (`access.student_view`: a student
+account without any staff, coach or parent capability for that data). A user who is also a
+parent or coach keeps their fuller views.
 
 ## Coach Portal (Phase 6C)
 

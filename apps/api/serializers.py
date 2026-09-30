@@ -147,6 +147,29 @@ class OwnStudentSerializer(StudentSerializer):
     guardians = EmergencyContactSerializer(source="guardianships", many=True, read_only=True)
 
 
+class SelfStudentSerializer(serializers.ModelSerializer):
+    """A student's own record as the Student Portal shows it: the basic training
+    profile only. Never the IC / passport, date of birth, address, phone, email,
+    medical note, guardians, emergency contacts or family (those stay with the
+    parents and the academy)."""
+
+    age = serializers.SerializerMethodField()
+    current_classes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Student
+        fields = ["id", "student_no", "full_name", "chinese_name", "gender", "age", "status", "join_date",
+                  "current_classes"]
+
+    def get_age(self, obj):
+        return obj.age_on(timezone.localdate())
+
+    def get_current_classes(self, obj):
+        return [{"class_name": e.training_class.name, "category": e.training_class.category,
+                 "team_name": e.team.name if e.team_id else None, "start_date": e.start_date}
+                for e in obj.current_enrollments().select_related("training_class", "team")]
+
+
 class StudentDirectorySerializer(serializers.ModelSerializer):
     """Finance directory: enough to identify a student and reach the family."""
 
@@ -285,6 +308,39 @@ class CoachingSessionSerializer(TrainingSessionSerializer):
         }
 
 
+class StudentSessionSerializer(serializers.ModelSerializer):
+    """A session as a student sees it: when and where, who coaches it (names
+    only) and their own attendance. No staff notes, no substitute
+    authorizations, no other students.
+
+    ``context["my_status"]``: {session_id: status} of the student's own records."""
+
+    class_name = serializers.CharField(source="training_class.name", read_only=True)
+    phase = serializers.SerializerMethodField()
+    coaches = serializers.SerializerMethodField()
+    my_attendance = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TrainingSession
+        fields = ["id", "class_name", "date", "start_time", "end_time", "venue", "status", "phase", "coaches",
+                  "my_attendance"]
+        read_only_fields = fields
+
+    def get_phase(self, obj):
+        return obj.phase()
+
+    def get_coaches(self, obj):
+        return sorted({slot.coach.full_name for slot in obj.coach_slots.all()
+                       if slot.status == SessionCoach.Status.ASSIGNED})
+
+    def get_my_attendance(self, obj):
+        """Their own status once the session has started (UNMARKED if not yet
+        marked); None before it starts or when it is cancelled."""
+        if obj.status == TrainingSession.Status.CANCELLED or timezone.now() < obj.starts_at:
+            return None
+        return self.context.get("my_status", {}).get(obj.id, AttendanceStatus.UNMARKED)
+
+
 class RescheduleSerializer(serializers.Serializer):
     date = serializers.DateField(required=False)
     start_time = serializers.TimeField(required=False)
@@ -303,6 +359,21 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
         model = AttendanceRecord
         fields = ["id", "session", "session_date", "class_name", "student", "student_name", "status", "remarks",
                   "recorded_by_name", "created_at", "updated_at"]
+
+    # A student viewing their own attendance gets the status only: the coach's
+    # remarks and who recorded it are staff / coach / parent information.
+    STUDENT_HIDDEN = ("remarks", "recorded_by_name")
+    BROADER = (Cap.ATTENDANCE_VIEW_ALL, Cap.ATTENDANCE_VIEW_ASSIGNED, Cap.ATTENDANCE_VIEW_OWN_CHILDREN)
+
+    def get_fields(self):
+        fields = super().get_fields()
+        from apps.academy import access
+
+        request = self.context.get("request")
+        if request is not None and access.student_view(request.user, self.BROADER):
+            for name in self.STUDENT_HIDDEN:
+                fields.pop(name, None)
+        return fields
 
     def get_recorded_by_name(self, obj):
         user = obj.recorded_by
@@ -469,11 +540,30 @@ class ReceiptSerializer(serializers.ModelSerializer):
         fields = ["id", "number", "payment", "issued_at", "payer_name", "total", "content", "is_void", "void_reason"]
 
 
+# Competition data for someone who can only view their own entries as a student
+# (parents register and pay): no registration form, no fees.
+COMPETITION_BROADER = (Cap.COMPETITION_MANAGE, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL,
+                       Cap.COMPETITION_REGISTRATIONS_VIEW_ASSIGNED, Cap.COMPETITION_REGISTER_OWN_CHILDREN)
+
+
+def _competition_student_view(context):
+    from apps.academy import access
+
+    request = context.get("request")
+    return request is not None and access.student_view(request.user, COMPETITION_BROADER)
+
+
 class CompetitionEventSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompetitionEvent
         fields = ["id", "competition", "event_type", "name", "gender", "min_age", "max_age", "weight_class", "fee",
                   "max_entries"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if _competition_student_view(self.context):
+            data.pop("fee", None)
+        return data
 
 
 class CompetitionSerializer(serializers.ModelSerializer):
@@ -486,6 +576,12 @@ class CompetitionSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "organiser", "venue", "start_date", "end_date", "registration_deadline", "status",
                   "allow_parent_registration", "allow_parent_withdrawal", "max_events_per_student",
                   "age_reference_date", "description", "rules", "is_open", "events", "registration_form"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if _competition_student_view(self.context):
+            data.pop("registration_form", None)  # a student cannot register (parents do); events drop fees
+        return data
 
     def get_is_open(self, obj):
         return obj.is_open_for_registration()
@@ -504,6 +600,18 @@ class CompetitionResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompetitionResult
         fields = ["id", "registration", "student_name", "event_name", "placing", "medal", "score", "remarks"]
+
+    BROADER = (Cap.COMPETITION_REGISTRATIONS_VIEW_ALL, Cap.COMPETITION_REGISTRATIONS_VIEW_ASSIGNED,
+               Cap.COMPETITION_REGISTRATIONS_VIEW_OWN_CHILDREN)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        from apps.academy import access
+
+        request = self.context.get("request")
+        if request is not None and access.student_view(request.user, self.BROADER):
+            data.pop("remarks", None)  # staff remarks on a result are not student-facing
+        return data
 
     def validate(self, attrs):
         if self.instance is not None and "registration" in attrs and attrs["registration"] != self.instance.registration:
@@ -556,8 +664,9 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
         # Duplicates are refused by the registration service (after the permission check).
         validators = []
 
-    # Family and competition-staff details: a coach viewing their athletes' entries
-    # sees the entry and its status, never the family's answers, notes, fee or invoice.
+    # Family and competition-staff details: a coach viewing their athletes' entries,
+    # or a student viewing their own, sees the entry and its status, never the
+    # family's answers, notes, fee or invoice (parents register and pay).
     FAMILY_ONLY = ("form_responses", "notes", "fee", "fee_status", "invoice")
 
     def to_representation(self, instance):
@@ -567,9 +676,7 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
         if user is not None and not can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL):
             from apps.academy import access
 
-            own = access.is_parent_of(user, instance.student) or getattr(access.student_of(user), "pk", None) \
-                == instance.student_id
-            if not own:
+            if not access.is_parent_of(user, instance.student):
                 for name in self.FAMILY_ONLY:
                     data.pop(name, None)
         return data
@@ -579,6 +686,38 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
         if item is None:
             return None
         return {"id": item.invoice_id, "number": item.invoice.number, "balance_due": str(item.invoice.balance_due)}
+
+
+class StudentCompetitionEntrySerializer(serializers.ModelSerializer):
+    """A student's own competition entry: the competition, the event, the entry
+    status and the result. Never the fee, payment, invoice, the family's form
+    answers or notes, or staff remarks."""
+
+    competition = serializers.SerializerMethodField()
+    event = serializers.SerializerMethodField()
+    result = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CompetitionRegistration
+        fields = ["id", "status", "registered_at", "competition", "event", "result"]
+        read_only_fields = fields
+
+    def get_competition(self, obj):
+        c = obj.event.competition
+        return {"id": c.id, "name": c.name, "organiser": c.organiser, "venue": c.venue, "start_date": c.start_date,
+                "end_date": c.end_date, "status": c.status, "rules": c.rules}
+
+    def get_event(self, obj):
+        e = obj.event
+        return {"name": e.name, "event_type": e.event_type, "gender": e.gender, "min_age": e.min_age,
+                "max_age": e.max_age, "weight_class": e.weight_class}
+
+    def get_result(self, obj):
+        result = getattr(obj, "result", None)
+        if result is None:
+            return None
+        return {"placing": result.placing, "medal": result.medal,
+                "score": str(result.score) if result.score is not None else None}
 
 
 class PayslipLineSerializer(serializers.ModelSerializer):

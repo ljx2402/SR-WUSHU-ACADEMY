@@ -161,3 +161,23 @@ API (no update route), and answers cannot be rewritten at all.
 Every change (fields, publish, unpublish, reorder, registrations) is audited.
 
 Tests: `apps/api/tests/test_registration_forms.py` (16 tests).
+
+## Student view (Phase 6D)
+
+Parents register (the Parent Portal is the only registration flow). A student login only
+views its own participation, read only (`GET /api/students/me/competitions/`):
+
+* competition name, dates, venue, organiser and rules; event name and category; entry status;
+  the result (placing, medal, score) once one is recorded (results exist only for CONFIRMED,
+  paid registrations);
+* **not** the fee, fee status, invoice, payment or payment proofs, the family's registration
+  form answers or notes, staff remarks on the result, the registration form or event fees.
+  Custom answers are hidden from students because no business rule says students should see
+  them (the family can).
+
+The generic endpoints give student-only viewers the same boundary: `competition-registrations`
+drops the family-only fields (they now go to the student's parents and staff only),
+`competition-results` drops the remarks, and `competitions` drops the registration form and
+event fees. Registering, withdrawing, confirming, editing entries or results and form
+configuration are 403 for students; another student's entries and results are 404.
+

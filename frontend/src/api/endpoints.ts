@@ -3,7 +3,8 @@ import type { QueryValue } from "./client";
 import type {
   AcademyPaymentInfo, AttendanceMark, AttendanceSheet, CoachingSession, PaymentProof, RosterStudent,
   AttendanceRecord, AttendanceSummaryResponse, Charge, Competition, CompetitionRegistration, Family, Invoice, Me,
-  OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, TokenResponse, TrainingSession,
+  OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, StudentAttendanceResponse, StudentCompetitionEntry,
+  StudentSelfProfile, StudentSession, TokenResponse, TrainingSession,
 } from "./types";
 
 type Query = Record<string, QueryValue>;
@@ -80,6 +81,16 @@ export function endpoints(api: ApiClient) {
     register: (body: { student: number; event: number; competition?: number; notes?: string;
                        responses?: Record<string, unknown> }) =>
       api.post<CompetitionRegistration>("/api/competition-registrations/", body),
+    /* Student portal: always the signed-in student's own record (no student id is sent). */
+    myProfile: (signal?: AbortSignal) => api.get<StudentSelfProfile>("/api/students/me/", undefined, signal),
+    mySessions: (query: { view?: "today" | "upcoming" | "past" | "cancelled"; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<StudentSession>>("/api/students/me/sessions/", query, signal),
+    mySession: (id: number | string, signal?: AbortSignal) =>
+      api.get<StudentSession>(`/api/students/me/sessions/${encodeURIComponent(id)}/`, undefined, signal),
+    myAttendance: (signal?: AbortSignal) =>
+      api.get<StudentAttendanceResponse>("/api/students/me/attendance/", undefined, signal),
+    myCompetitions: (signal?: AbortSignal) =>
+      api.get<StudentCompetitionEntry[]>("/api/students/me/competitions/", undefined, signal),
     /* Coach portal. Scope comes from the signed-in coach (never from ids sent). */
     coachingSessions: (query: { date?: string; start?: string; end?: string; status?: string; order?: "asc";
                                 page?: number }, signal?: AbortSignal) =>

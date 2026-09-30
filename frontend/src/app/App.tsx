@@ -27,6 +27,11 @@ import { CoachAttendancePage } from "../coach/pages/CoachAttendancePage";
 import { CoachCompetitionsPage } from "../coach/pages/CoachCompetitionsPage";
 import { CoachDashboardPage } from "../coach/pages/CoachDashboardPage";
 import { CoachAttendanceIndexPage, CoachSessionDetailPage, CoachSessionsPage } from "../coach/pages/CoachSessionPages";
+import { MyProfilePage } from "../student/pages/MyProfilePage";
+import { StudentAttendancePage } from "../student/pages/StudentAttendancePage";
+import { StudentCompetitionsPage } from "../student/pages/StudentCompetitionsPage";
+import { StudentDashboardPage } from "../student/pages/StudentDashboardPage";
+import { StudentSchedulePage, StudentSessionDetailPage } from "../student/pages/StudentSchedulePages";
 import { ServicesProvider, type AppServices } from "./services";
 
 /** The app is served under /app/ (Django keeps /api/ and /admin/). */
@@ -40,6 +45,12 @@ const PAGES: Record<string, ReactNode> = {
   "coach-competitions": <CoachCompetitionsPage />,
   "/coach/sessions/:sessionId": <CoachSessionDetailPage />,
   "/coach/sessions/:sessionId/attendance": <CoachAttendancePage />,
+  "student-dashboard": <StudentDashboardPage />,
+  "student-schedule": <StudentSchedulePage />,
+  "student-attendance": <StudentAttendancePage />,
+  "student-competitions": <StudentCompetitionsPage />,
+  "student-profile": <MyProfilePage />,
+  "/student/sessions/:sessionId": <StudentSessionDetailPage />,
   "parent-overview": <ParentDashboardPage />,
   "parent-family": <FamilyPage />,
   "parent-schedule": <SchedulePage />,
@@ -96,6 +107,7 @@ export const appRoutes: RouteObject[] = [
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/parent", element: <Navigate to="/parent/dashboard" replace /> },
           { path: "/coach", element: <Navigate to="/coach/dashboard" replace /> },
+          { path: "/student", element: <Navigate to="/student/dashboard" replace /> },
           { path: "/parent/students", element: <Navigate to="/parent/family" replace /> },
           {
             element: <ParentLayout />,

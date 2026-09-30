@@ -176,3 +176,20 @@ same endpoints and services; it adds no rules of its own:
   write is refused by the service (403) whatever the page shows.
 * Session attendance remarks (`remarks`) are the existing per-student field: coaches of the
   session read and write them with the attendance; no second notes system exists.
+
+## Student view (Phase 6D)
+
+A student login sees only its own attendance, read only:
+
+* `GET /api/students/me/attendance/` returns the summary from `attendance.services.student_summary`
+  (the same calculation as `…/attendance-summary/`: UNMARKED reported separately and never in the
+  percentage) and one row per session the student was expected at that has **started and was not
+  cancelled** (`student_history`), with their status or `UNMARKED`. Future and cancelled sessions
+  have no row, so they never read as absences. The page never recalculates the percentage.
+* `GET /api/students/me/sessions/<id>/` gives `my_attendance`: their own status once the session
+  has started, `null` before it starts or when it is cancelled.
+* Coach remarks and who recorded a mark are not sent to student-only viewers (also on
+  `GET /api/attendance/`).
+* Students cannot record, change or correct attendance, read attendance sheets or change history
+  (403), and other students' records are 404.
+
