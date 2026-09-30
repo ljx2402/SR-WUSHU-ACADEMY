@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
 from apps.audit.models import AuditCategory, AuditedModel
@@ -30,6 +31,7 @@ class User(AbstractUser):
     )
 
     def save(self, *args, **kwargs):
+        old = None
         if self.pk is None:
             # New accounts start without roles. A superuser created with
             # createsuperuser is promoted to SUPER_ADMIN by a post_save hook.
@@ -37,11 +39,32 @@ class User(AbstractUser):
             self.is_superuser = self.is_staff = False
             self.role = ""
         else:
+            old = User.objects.filter(pk=self.pk).values("password", "is_active").first()
             roles = set(self.groups.filter(name__in=Role.values).values_list("name", flat=True))
             self.is_superuser = Role.SUPER_ADMIN in roles
             self.is_staff = bool(roles & STAFF_ROLES)
             self.role = primary_role(roles)
+            if old is not None and old["is_active"] and not self.is_active:
+                self.auth_version += 1  # ends every web session at once
         super().save(*args, **kwargs)
+        if old is not None:
+            self._revoke_on_credential_change(old)
+
+    def _revoke_on_credential_change(self, old):
+        """A new password or a deactivation ends every API token (sessions are
+        already invalid: their hash covers the password and auth_version)."""
+        from apps.audit.utils import security_event
+
+        from .services import revoke_tokens
+
+        if old["password"] != self.password:
+            security_event(self, "PASSWORD_CHANGED", {"tokens_revoked": revoke_tokens(self)})
+        if old["is_active"] != self.is_active:
+            changes = {"is_active": {"from": old["is_active"], "to": self.is_active}}
+            if not self.is_active:
+                changes["tokens_revoked"] = revoke_tokens(self)
+                changes["sessions_invalidated"] = True
+            security_event(self, "ACCOUNT_DEACTIVATED" if not self.is_active else "ACCOUNT_REACTIVATED", changes)
 
     def _get_session_auth_hash(self, secret=None):
         # Django compares this with the hash stored in each session. Mixing in
@@ -122,3 +145,20 @@ class Coach(AuditedModel):
 
     def __str__(self):
         return self.full_name
+
+
+class LoginFailure(models.Model):
+    """A failed sign-in (admin or API). Used for the brute-force lockout and for
+    security review. The password tried is never stored."""
+
+    username = models.CharField(max_length=150, db_index=True, help_text="As typed, lower-cased.")
+    ip_address = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    locked = models.BooleanField(default=False, help_text="The attempt was refused because of the lockout.")
+    attempted_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-attempted_at"]
+
+    def __str__(self):
+        return f"{self.attempted_at:%Y-%m-%d %H:%M} {self.username} from {self.ip_address}"

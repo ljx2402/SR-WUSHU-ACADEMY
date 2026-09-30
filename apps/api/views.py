@@ -62,6 +62,16 @@ def as_drf_error(exc):
     return ValidationError({"detail": exc.messages if hasattr(exc, "messages") else [str(exc)]})
 
 
+def id_param(params, name):
+    """A numeric id from the query string, or None. Anything else is a 400, never a 500."""
+    value = params.get(name)
+    if value in (None, ""):
+        return None
+    if not str(value).isdigit():
+        raise ValidationError({name: "Must be a numeric id."})
+    return int(value)
+
+
 def summary_json(summary):
     pct = summary["percentage"]
     return {**summary, "percentage": str(pct) if pct is not None else None}
@@ -113,7 +123,7 @@ class MeView(ApiViewMixin, APIView):
         }
         parent = access.parent_of(user)
         if parent:
-            data["parent"] = s.ParentSerializer(parent).data
+            data["parent"] = s.ParentSerializer(parent, context={"request": request}).data
             data["children"] = [{"id": c.id, "student_no": c.student_no, "full_name": c.full_name}
                                 for c in access.children_for(user).order_by("full_name")]
         coach = access.coach_of(user)
@@ -228,7 +238,7 @@ class StudentViewSet(ApiViewMixin, NoDestroyModelViewSet):
     def attendance_summary(self, request, pk=None):
         student = self.get_object()
         params = request.query_params
-        class_id = params.get("class")
+        class_id = id_param(params, "class")
         training_class = get_object_or_404(access.classes_for(request.user), pk=class_id) if class_id else None
         summary = attendance_services.student_summary(student, training_class, params.get("start"), params.get("end"))
         return Response({"student": student.id, **summary_json(summary)})
@@ -363,8 +373,8 @@ class TrainingSessionViewSet(ApiViewMixin, NoDestroyModelViewSet):
             qs = qs.filter(date__gte=params["start"])
         if params.get("end"):
             qs = qs.filter(date__lte=params["end"])
-        if params.get("class"):
-            qs = qs.filter(training_class_id=params["class"])
+        if id_param(params, "class"):
+            qs = qs.filter(training_class_id=id_param(params, "class"))
         return qs
 
     @action(detail=True, methods=["get"])
@@ -486,8 +496,8 @@ class AttendanceRecordViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
                 scope |= Q(student_id__in=self._own_student_ids(user))
             qs = qs.filter(scope)
         params = self.request.query_params
-        if params.get("student"):
-            qs = qs.filter(student_id=params["student"])
+        if id_param(params, "student"):
+            qs = qs.filter(student_id=id_param(params, "student"))
         if params.get("start"):
             qs = qs.filter(session__date__gte=params["start"])
         if params.get("end"):
@@ -533,8 +543,8 @@ class ChargeViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMix
         if not can(user, Cap.FINANCE_VIEW_ALL):
             qs = qs.filter(family_finance_filter(user, "student"))
         params = self.request.query_params
-        if params.get("student"):
-            qs = qs.filter(student_id=params["student"])
+        if id_param(params, "student"):
+            qs = qs.filter(student_id=id_param(params, "student"))
         if params.get("status"):
             qs = qs.filter(status__in=params["status"].split(","))
         if params.get("outstanding"):
@@ -597,8 +607,8 @@ class InvoiceViewSet(ApiViewMixin, mixins.ListModelMixin, mixins.RetrieveModelMi
     def get_queryset(self):
         qs = finance_access.invoices_for(self.request.user).prefetch_related("items")
         params = self.request.query_params
-        if params.get("family"):
-            qs = qs.filter(family_id=params["family"])
+        if id_param(params, "family"):
+            qs = qs.filter(family_id=id_param(params, "family"))
         if params.get("status"):
             qs = qs.filter(status__in=params["status"].split(","))
         if params.get("outstanding"):
@@ -718,8 +728,8 @@ class CompetitionEventViewSet(ApiViewMixin, NoDestroyModelViewSet):
         qs = CompetitionEvent.objects.select_related("competition")
         if not can(self.request.user, Cap.COMPETITION_MANAGE):
             qs = qs.exclude(competition__status=Competition.Status.DRAFT)
-        if self.request.query_params.get("competition"):
-            qs = qs.filter(competition_id=self.request.query_params["competition"])
+        if id_param(self.request.query_params, "competition"):
+            qs = qs.filter(competition_id=id_param(self.request.query_params, "competition"))
         return qs
 
 
@@ -764,18 +774,22 @@ class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins
             qs = qs.filter(student__in=access.children_for(user))
         else:
             qs = qs.filter(registration_scope(user, "student"))
-        if self.request.query_params.get("competition"):
-            qs = qs.filter(event__competition_id=self.request.query_params["competition"])
+        if id_param(self.request.query_params, "competition"):
+            qs = qs.filter(event__competition_id=id_param(self.request.query_params, "competition"))
         return qs
 
     def create(self, request, *args, **kwargs):
+        manager = can(request.user, Cap.COMPETITION_REGISTRATIONS_MANAGE)
+        if not manager:
+            # Check ownership before any validation, so the answer for someone
+            # else's child never reveals whether they are already registered.
+            student_id = id_param(request.data, "student")
+            if student_id is None or not access.children_for(request.user).filter(pk=student_id).exists():
+                raise PermissionDenied("You can only register your own children.")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         student = serializer.validated_data["student"]
         event = serializer.validated_data["event"]
-        manager = can(request.user, Cap.COMPETITION_REGISTRATIONS_MANAGE)
-        if not manager and not access.is_parent_of(request.user, student):
-            raise PermissionDenied("You can only register your own children.")
         if event.competition.status == Competition.Status.DRAFT and not manager:
             raise ValidationError({"detail": "This competition is not open."})
         registration = competition_services.register(student, event, request.user,
@@ -816,8 +830,8 @@ class CompetitionResultViewSet(ApiViewMixin, NoDestroyModelViewSet):
     def get_queryset(self):
         qs = CompetitionResult.objects.select_related("registration__student", "registration__event__competition")
         qs = qs.filter(registration_scope(self.request.user, "registration__student"))
-        if self.request.query_params.get("competition"):
-            qs = qs.filter(registration__event__competition_id=self.request.query_params["competition"])
+        if id_param(self.request.query_params, "competition"):
+            qs = qs.filter(registration__event__competition_id=id_param(self.request.query_params, "competition"))
         return qs
 
 

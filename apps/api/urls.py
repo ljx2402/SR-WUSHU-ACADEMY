@@ -1,7 +1,7 @@
 from django.urls import include, path
-from rest_framework.authtoken.views import obtain_auth_token
 from rest_framework.routers import DefaultRouter
 
+from apps.accounts.views import LogoutView, ObtainTokenView
 from apps.reports.views import ReportIndexView, ReportView
 
 from . import views
@@ -29,7 +29,8 @@ router.register("payroll-runs", views.PayrollRunViewSet, basename="payroll-run")
 router.register("payslips", views.PayslipViewSet, basename="payslip")
 
 urlpatterns = [
-    path("auth/token/", obtain_auth_token, name="api-token"),
+    path("auth/token/", ObtainTokenView.as_view(), name="api-token"),
+    path("auth/logout/", LogoutView.as_view(), name="api-logout"),
     path("me/", views.MeView.as_view(), name="api-me"),
     path("reports/", ReportIndexView.as_view(), name="report-index"),
     path("reports/<str:name>/", ReportView.as_view(), name="report"),

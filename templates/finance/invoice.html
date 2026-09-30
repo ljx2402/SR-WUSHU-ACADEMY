@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -51,7 +52,8 @@
     </tfoot>
   </table>
   <div class="footer">This is a computer-generated invoice.</div>
-  <p class="noprint"><button onclick="window.print()">Print</button></p>
+  <p class="noprint"><button type="button" data-print>Print</button></p>
 </div>
+<script src="{% static 'finance/print.js' %}"></script>
 </body>
 </html>

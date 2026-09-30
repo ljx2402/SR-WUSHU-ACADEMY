@@ -132,14 +132,16 @@ class FinanceAccessTests(AcademyTestCase):
         self.assertEqual(client.get("/api/families/").json()["results"][0]["id"], kid.family_id)
 
     def test_print_pages_respect_access(self):
+        # Phase 5: a document the user may not see answers 404, like a missing one,
+        # so its existence is not revealed (was 403).
         self.client.force_login(self.parent_1_user)
         self.assertEqual(self.client.get(f"/invoices/{self.inv_1.pk}/").status_code, 200)
-        self.assertEqual(self.client.get(f"/invoices/{self.inv_2.pk}/").status_code, 403)
-        self.assertEqual(self.client.get(f"/invoices/{self.draft_1.pk}/").status_code, 403)
+        self.assertEqual(self.client.get(f"/invoices/{self.inv_2.pk}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/invoices/{self.draft_1.pk}/").status_code, 404)
         self.assertEqual(self.client.get(f"/receipts/{self.receipt_1.pk}/").status_code, 200)
-        self.assertEqual(self.client.get(f"/receipts/{self.receipt_2.pk}/").status_code, 403)
+        self.assertEqual(self.client.get(f"/receipts/{self.receipt_2.pk}/").status_code, 404)
         self.client.force_login(self.coach_a_user)
-        self.assertEqual(self.client.get(f"/invoices/{self.inv_1.pk}/").status_code, 403)
+        self.assertEqual(self.client.get(f"/invoices/{self.inv_1.pk}/").status_code, 404)
 
     def test_idempotency_key_over_api(self):
         client = self.client_for(A)

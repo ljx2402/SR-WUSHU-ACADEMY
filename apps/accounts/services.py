@@ -62,7 +62,7 @@ def set_roles(user, roles, actor, reason):
 
     user.auth_version += 1  # invalidates every existing web session
     user.save()  # re-derives is_staff / is_superuser / role from the groups
-    revoked, _ = Token.objects.filter(user=user).delete()
+    revoked = revoke_tokens(user)
     capabilities.clear_cache(user)
 
     audit_record(
@@ -82,3 +82,9 @@ def set_roles(user, roles, actor, reason):
 
 def roles_for_display(user):
     return sorted(roles_of(user), key=capabilities.ROLE_PRECEDENCE.index)
+
+
+def revoke_tokens(user):
+    """Delete every API token of the user; returns how many were revoked."""
+    revoked, _ = Token.objects.filter(user=user).delete()
+    return revoked

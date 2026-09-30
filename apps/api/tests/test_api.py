@@ -46,7 +46,7 @@ class ParentApiTests(ApiTestCase):
         self.assertEqual(self.ids(client.get("/api/receipts/")), {my_receipt.id})
         client.force_login(self.parent_1_user)
         self.assertEqual(client.get(f"/receipts/{my_receipt.id}/").status_code, 200)
-        self.assertEqual(client.get(f"/receipts/{other_receipt.id}/").status_code, 403)
+        self.assertEqual(client.get(f"/receipts/{other_receipt.id}/").status_code, 404)  # hidden (Phase 5)
 
     def test_parent_registers_child_for_competition(self):
         competition = Competition.objects.create(

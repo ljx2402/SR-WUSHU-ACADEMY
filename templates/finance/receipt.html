@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -52,7 +53,8 @@
   </table>
   {% if void %}<p><strong>This receipt was voided on {{ void.voided_at|date:"d M Y" }}.</strong> Reason: {{ void.reason }}</p>{% endif %}
   <div class="footer">Issued by {{ c.issued_by|default:"SR Wushu Academy" }}. This is a computer-generated receipt.</div>
-  <p class="noprint"><button onclick="window.print()">Print</button></p>
+  <p class="noprint"><button type="button" data-print>Print</button></p>
 </div>
+<script src="{% static 'finance/print.js' %}"></script>
 </body>
 </html>

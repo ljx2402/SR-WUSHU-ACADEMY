@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 
 from .capabilities import Cap, Role, can, roles_of
-from .models import Coach, Parent, User
+from .models import Coach, LoginFailure, Parent, User
 from .services import set_roles
 
 
@@ -140,3 +140,25 @@ class CoachAdmin(LoginLinkMixin, admin.ModelAdmin):
             # Bank-details-only users (finance) may edit just those fields.
             readonly += [f for f in self._editable_fields() if f not in COACH_BANK_FIELDS and f not in readonly]
         return readonly
+
+
+@admin.register(LoginFailure)
+class LoginFailureAdmin(admin.ModelAdmin):
+    """Failed sign-ins (read-only, super admin): usernames tried, IP, time,
+    whether the lockout refused the attempt. Passwords are never stored."""
+
+    list_display = ("attempted_at", "username", "ip_address", "locked")
+    list_filter = ("locked",)
+    search_fields = ("username", "ip_address")
+    date_hierarchy = "attempted_at"
+    readonly_fields = [f.name for f in LoginFailure._meta.fields]
+    actions = None
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

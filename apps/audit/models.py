@@ -16,8 +16,21 @@ class AuditCategory(models.TextChoices):
     SECURITY = "SECURITY", "Security & roles"
 
 
+class AuditLogQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise PermissionDenied("Audit log entries cannot be modified.")
+
+    def delete(self):
+        raise PermissionDenied("Audit log entries cannot be deleted.")
+
+    def bulk_update(self, *args, **kwargs):
+        raise PermissionDenied("Audit log entries cannot be modified.")
+
+
 class AuditLog(models.Model):
-    """Append-only record of a change. Entries can never be edited or deleted."""
+    """Append-only record of a change. Entries can never be edited or deleted
+    (model and queryset guards, and a PostgreSQL trigger). Sensitive values are
+    masked before they are written (``apps.audit.masking``)."""
 
     class Action(models.TextChoices):
         CREATE = "CREATE", "Created"
@@ -36,6 +49,10 @@ class AuditLog(models.Model):
     object_repr = models.CharField(max_length=255)
     changes = models.JSONField(default=dict, blank=True)
     reason = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+
+    objects = AuditLogQuerySet.as_manager()
 
     class Meta:
         ordering = ["-timestamp", "-id"]

@@ -70,6 +70,7 @@ class AttendanceSheetAdminTests(AdminTestCase):
         self.assertEqual(AttendanceRecord.objects.get().status, "PRESENT")
         after = coach_edit_deadline(self.session_a) + datetime.timedelta(minutes=1)
         with mock.patch("django.utils.timezone.now", return_value=after):
+            self.login(self.admin_user)  # sessions last 12 hours (Phase 5): sign in at the simulated time
             response = self.submit({f"status_{self.student_3.pk}": "ABSENT"})
             self.assertContains(response, "reason is required")
             response = self.submit({f"status_{self.student_3.pk}": "ABSENT"}, reason="From the paper register")

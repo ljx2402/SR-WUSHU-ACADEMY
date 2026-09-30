@@ -205,3 +205,15 @@ finance. Details: `ATTENDANCE_AND_SUBSTITUTES.md`.
 
 ADMIN, parents and students have no payroll access and never see coach bank details. Details:
 `SESSION_LIFECYCLE.md`, `PAYROLL.md`, `COMPETITIONS.md`.
+
+## Authentication and sensitive data (Phase 5)
+
+Sign-in, token expiry, the brute-force lockout, revocation rules, audit masking, and who may see
+IC numbers, medical notes and bank details are described in `SECURITY.md` ("Controls now in place").
+In short:
+* medical notes are visible to staff, the student's own parents and the student, and the coaches of
+  the student's classes, including an authorized substitute during their window (a safety
+  requirement);
+* bank details are visible to `coaches.bank_details` only;
+* audit entries show identity and account numbers as `****1234`, medical notes as a length only,
+  and never credentials.

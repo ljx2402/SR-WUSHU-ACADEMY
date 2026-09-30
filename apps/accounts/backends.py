@@ -1,12 +1,32 @@
 from django.contrib.auth.backends import ModelBackend
 
+from . import lockout
 from .capabilities import MODEL_CAPABILITIES, can
 
 
 class CapabilityBackend(ModelBackend):
     """Password authentication as usual, but Django model permissions (used by
     the admin site) come from the capability map instead of permission rows in
-    the database. Group or per-user permission rows are ignored entirely."""
+    the database. Group or per-user permission rows are ignored entirely.
+
+    Sign-in is refused without checking the password while the username or the
+    client IP is locked out (``apps.accounts.lockout``). Inactive users can
+    never authenticate or keep a session (ModelBackend.user_can_authenticate)."""
+
+    def authenticate(self, request, username=None, password=None, **kwargs):
+        if username is None:
+            username = kwargs.get(self._username_field())
+        if lockout.is_locked(username, request):
+            if request is not None:
+                request._login_locked = True
+            return None
+        return super().authenticate(request, username=username, password=password, **kwargs)
+
+    @staticmethod
+    def _username_field():
+        from django.contrib.auth import get_user_model
+
+        return get_user_model().USERNAME_FIELD
 
     def get_user_permissions(self, user_obj, obj=None):
         return set()

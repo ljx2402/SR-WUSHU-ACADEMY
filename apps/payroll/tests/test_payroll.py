@@ -384,12 +384,13 @@ class PayrollApiAndAdminTests(PayrollTestCase):
         self.client.post(f"/admin/payroll/payrollrun/{run.pk}/change/",
                          {"year": run.year, "month": run.month, "status": "FINALIZED", "notes": "x"})
         self.assertEqual(PayrollRun.objects.get(pk=run.pk).status, PayrollRun.Status.READY)
-        self.client.force_login(self.finance_user)
+        # Sessions last 12 hours (Phase 5): sign in at the simulated time.
         with at(self.after_month):
+            self.client.force_login(self.finance_user)
             self.client.post("/admin/payroll/payrollrun/", {"action": "finalize", "_selected_action": [run.pk]})
         self.assertEqual(PayrollRun.objects.get(pk=run.pk).status, PayrollRun.Status.READY)
-        self.client.force_login(self.super_user)
         with at(self.after_month):
+            self.client.force_login(self.super_user)
             self.client.post("/admin/payroll/payrollrun/", {"action": "finalize", "_selected_action": [run.pk]})
         self.assertEqual(PayrollRun.objects.get(pk=run.pk).status, PayrollRun.Status.FINALIZED)
         self.assertEqual(self.client.post(f"/admin/payroll/payrollrun/{run.pk}/delete/", {"post": "yes"}).status_code,

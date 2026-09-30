@@ -116,6 +116,7 @@ Authenticate with `POST /api/auth/token/` (`username`, `password`) and send
 
 | Endpoint | Who | Purpose |
 |---|---|---|
+| `POST /api/auth/token/`, `POST /api/auth/logout/` | anyone / signed in | Sign in (new 14-day token, previous revoked; brute-force lockout) and sign out |
 | `GET /api/me/` | all | Roles, capabilities, profile, children (parent), classes and open substitute sessions (coach), own record (student) |
 | `/api/users/` | super admin | Accounts; `POST …/{id}/roles/` with `roles` and `reason` |
 | `/api/students/` | all (scoped) | List/view; admin create/update. `…/{id}/attendance-summary/`, `…/{id}/history/`, `…/{id}/change-status/`, `…/{id}/guardians/` |
@@ -143,6 +144,11 @@ POST /api/sessions/42/attendance/
 ```
 
 Changing a record that already exists requires `"reason": "..."`.
+
+## Security and deployment
+
+See `docs/SECURITY.md` (audit, threat model, controls, **production blockers**),
+`docs/DEPLOYMENT.md` (production settings) and `docs/BACKUP_AND_RECOVERY.md`.
 
 ## Payroll rules
 

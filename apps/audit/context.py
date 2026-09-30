@@ -10,6 +10,20 @@ from contextvars import ContextVar
 
 _actor = ContextVar("audit_actor", default=None)
 _reason = ContextVar("audit_reason", default="")
+_client = ContextVar("audit_client", default=(None, ""))
+
+
+def get_client():
+    """(ip_address, user_agent) of the current request, if any."""
+    return _client.get()
+
+
+def set_client(ip, agent):
+    return _client.set((ip, agent or ""))
+
+
+def reset_client(token):
+    _client.reset(token)
 
 
 def get_actor():

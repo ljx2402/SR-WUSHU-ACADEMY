@@ -203,6 +203,7 @@ MODEL_CAPABILITIES = {
     "authtoken.tokenproxy": (Cap.USERS_MANAGE, Cap.USERS_MANAGE),
     "audit.auditlog": ((Cap.AUDIT_VIEW_ALL, Cap.AUDIT_VIEW_OPERATIONS, Cap.AUDIT_VIEW_FINANCE), None),
     "accounts.user": (Cap.USERS_VIEW, Cap.USERS_MANAGE),
+    "accounts.loginfailure": (Cap.AUDIT_VIEW_ALL, None),
     "accounts.parent": (Cap.PARENTS_VIEW_ALL, Cap.PARENTS_MANAGE),
     "accounts.coach": (Cap.COACHES_VIEW_ALL, (Cap.COACHES_MANAGE, Cap.COACHES_BANK_DETAILS)),
     "academy.program": (Cap.CLASSES_VIEW_ALL, Cap.CLASSES_MANAGE),

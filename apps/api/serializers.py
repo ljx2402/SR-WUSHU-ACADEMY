@@ -19,13 +19,27 @@ from apps.attendance.models import AttendanceRecord, AttendanceStatus
 from apps.audit.models import AuditLog
 from apps.competitions.models import Competition, CompetitionEvent, CompetitionRegistration, CompetitionResult
 from apps.finance.models import Charge, FeeType, Invoice, InvoiceItem, Payment, PaymentAllocation, Receipt, Refund
+from apps.audit.masking import mask_identifier
 from apps.payroll.models import PayrollRun, Payslip, PayslipLine
 
 
 class ParentSerializer(serializers.ModelSerializer):
+    """Parent record. The IC / passport number is shown in full only to people who
+    manage parent records (and to the parent themselves); others (e.g. finance,
+    who may view parents to reach them) see only its last 4 characters."""
+
     class Meta:
         model = Parent
         fields = ["id", "full_name", "ic_number", "phone", "alt_phone", "email", "address", "occupation", "is_active"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        own = user is not None and instance.user_id is not None and instance.user_id == getattr(user, "pk", None)
+        if not own and not can(user, Cap.PARENTS_MANAGE):
+            data["ic_number"] = mask_identifier(data.get("ic_number"))
+        return data
 
 
 class CoachSerializer(serializers.ModelSerializer):
@@ -432,6 +446,8 @@ class CompetitionRegistrationSerializer(serializers.ModelSerializer):
         fields = ["id", "competition", "competition_name", "event", "event_name", "student", "student_name", "status",
                   "registered_at", "notes", "fee", "fee_status", "invoice", "result"]
         read_only_fields = ["status", "registered_at"]
+        # Duplicates are refused by the registration service (after the permission check).
+        validators = []
 
     def get_invoice(self, obj):
         item = obj.charge.active_invoice_item() if obj.charge_id else None
