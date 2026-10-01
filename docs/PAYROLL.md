@@ -86,7 +86,24 @@ DRAFT ──calculate──▶ READY ──finalize──▶ FINALIZED (final)
   * `GET /api/payroll-runs/`;
   * `POST /api/payroll-runs/calculate/` with `{year, month}`;
   * `POST /api/payroll-runs/{id}/finalize/`;
-  * `GET /api/payslips/` (coaches: own finalized payslips only).
+  * `GET /api/payslips/` (coaches: own finalized payslips only), with `?run=` and `?coach=`
+    filters (Phase 6H). The filters only narrow the caller's scope (a coach's `?coach=` for
+    another coach returns nothing), and a non-numeric id is 400.
+* **Web app (Phase 6H):**
+  * `/app/finance/payroll` (`payroll.view_all`: FINANCE_ADMIN, SUPER_ADMIN). It lists the
+    periods and has "Calculate a month" (`payroll.prepare`).
+  * The period page shows status, issues, payslips per coach and the "Not paid in this period"
+    list with the backend's reasons. It has Recalculate (`payroll.prepare`) and Finalize. Finalize
+    (`payroll.finalize`, SUPER_ADMIN only) appears only for a READY period and asks for
+    confirmation that the action is permanent.
+  * The coach payslip page lists every line with kind, original coach, the rate rule used, issue
+    and amount.
+  * Coaches get "My payslips" (`/app/coach/payslips`, `payroll.view_own`): their own finalized
+    payslips only.
+  * Every amount, count, rule and refusal is the backend's; the browser calculates nothing.
+  * Rates, adjustments, run notes, deleting a draft, payout recording, regular-coach no-shows,
+    payslip PDFs and reversal stay out of the web app. Rates and adjustments are edited in
+    Django Admin.
 * **Reports:** `payroll` (per payslip, including bank details for payroll staff) and
   `payroll_lines` (every paid session: coach, role, original coach, date, class, rate, rule, amount,
   issue). Both need `reports.payroll`.

@@ -61,6 +61,7 @@ const CAPABILITIES: Record<Role, string[]> = {
     "competition.view", "competition.registrations.manage", "competition.results.manage",
     "competition.register_own_children", "competition.registrations.view_own_children",
     "competition.registrations.view_assigned", "competition.registrations.view_self",
+    "payroll.view_own", "payroll.rates.manage", "payroll.prepare", "payroll.finalize", "coaches.bank_details",
   ],
   // Mirrors apps/accounts/capabilities.py (front desk may take payments, so sees finance).
   ADMIN: ["students.view_all", "students.manage", "students.history", "parents.view_all", "parents.manage",

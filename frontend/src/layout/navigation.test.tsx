@@ -51,7 +51,7 @@ describe("role-based navigation", () => {
     expect(sectionTitles()).toEqual(["Coaching", "My family"]);
     const coaching = sidebar().querySelector("[data-portal='coach']") as HTMLElement;
     expect(within(coaching).getAllByRole("link").map((a) => a.textContent)).toEqual(
-      ["Coach dashboard", "My sessions", "Attendance", "Competitions"]);
+      ["Coach dashboard", "My sessions", "Attendance", "Competitions", "My payslips"]);
     expect(within(sidebar()).getByRole("link", { name: "My family" })).toBeInTheDocument();
   });
 
@@ -75,15 +75,15 @@ describe("route protection", () => {
   });
 
   it("a staff role without the capability is denied the page", async () => {
-    await renderAs(["ADMIN"], "/staff/payroll");
+    await renderAs(["ADMIN"], "/finance/payroll");
     expect(screen.getByTestId("access-denied")).toBeInTheDocument();
   });
 
   it("an allowed page that is not built yet says so (no invented data)", async () => {
-    await renderAs(["FINANCE_ADMIN"], "/staff/payroll");
-    expect(screen.getByRole("heading", { level: 1, name: "Payroll" })).toBeInTheDocument();
-    expect(screen.getByTestId("not-implemented")).toHaveTextContent("Phase 6I");
-    expect(document.title).toBe("Payroll · SR Wushu Academy");
+    await renderAs(["FINANCE_ADMIN"], "/staff/reports");
+    expect(screen.getByRole("heading", { level: 1, name: "Reports" })).toBeInTheDocument();
+    expect(screen.getByTestId("not-implemented")).toHaveTextContent("Phase 6J");
+    expect(document.title).toBe("Reports · SR Wushu Academy");
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
   });
 

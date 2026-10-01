@@ -28,13 +28,13 @@ describe("coach dashboard", () => {
     expect(cancelled).toHaveClass("is-cancelled");
   });
 
-  it("the coach menu has no finance, family, payroll or admin pages", async () => {
+  it("the coach menu has no finance, family, staff payroll or admin pages (own payslips only)", async () => {
     renderApp({ route: "/coach/dashboard", routes: coachRoutes() });
     await screen.findByRole("heading", { name: "Coach dashboard", level: 1 });
     const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
     const links = within(sidebar).getAllByRole("link").map((a) => a.textContent);
-    expect(links).toEqual(["Dashboard", "Coach dashboard", "My sessions", "Attendance", "Competitions"]);
-    for (const hidden of [/finance/i, /famil/i, /payroll|payslip/i, /invoice|payment|receipt/i]) {
+    expect(links).toEqual(["Dashboard", "Coach dashboard", "My sessions", "Attendance", "Competitions", "My payslips"]);
+    for (const hidden of [/finance/i, /famil/i, /payroll/i, /invoice|payment|receipt/i]) {
       expect(links.some((l) => hidden.test(l ?? ""))).toBe(false);
     }
   });
@@ -223,7 +223,7 @@ describe("attendance index and competitions", () => {
 
 describe("route guards", () => {
   it("a coach cannot open finance, family or staff pages by URL", async () => {
-    for (const route of ["/parent/finance", "/parent/family", "/finance/dashboard", "/staff/payroll"]) {
+    for (const route of ["/parent/finance", "/parent/family", "/finance/dashboard", "/finance/payroll", "/finance/payroll/1"]) {
       const { unmount } = renderApp({ route, routes: coachRoutes() });
       expect(await screen.findByTestId("access-denied")).toBeInTheDocument();
       unmount();

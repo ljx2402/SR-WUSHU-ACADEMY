@@ -9,9 +9,10 @@ Phase 6A delivered the foundation: sign-in, the application shell, navigation, t
 system, the API client, route protection and a dashboard built from real API data. Phase 6B
 added the **Parent Portal**, Phase 6C the **Coach Portal**, Phase 6D the **Student
 Portal**, Phase 6E the **Staff Core Operations Portal**, Phase 6F the **Finance Staff
-Portal** and Phase 6G the **Competition Staff Portal** (see below). The remaining staff pages
-(payroll, reports) are built in later phases (6I–6J). Until then each of their pages exists, is
-protected, and says "This page is not available yet" (no invented data).
+Portal**, Phase 6G the **Competition Staff Portal** and Phase 6H the **Payroll Staff Portal**
+with the coach's "My payslips" (see below). The remaining staff page (reports) is built in a later
+phase (6J). Until then it exists, is protected, and says "This page is not available yet" (no
+invented data).
 
 ## Technology (and why)
 
@@ -614,9 +615,37 @@ message: an unpaid confirmation, a result for an unconfirmed entry, a forbidden 
 or an end date before the start. The form builder works on phones: field cards with large
 buttons instead of drag and drop, and the dialog fits 390 px. Code is in `src/competitions/`.
 
+## Payroll Staff Portal and My payslips (Phase 6H)
+
+The Finance menu's **Payroll** item (`payroll.view_all`: FINANCE_ADMIN and SUPER_ADMIN). The
+old `/staff/payroll` placeholder is retired. ADMIN, COACH, PARENT and STUDENT get "access
+denied" and 403 from the API.
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/finance/payroll` | Periods (status, issues, calculated / finalized); "Calculate a month" with confirmation (`payroll.prepare`) | `payroll.view_all` |
+| `/finance/payroll/:runId` | Status, the backend's guidance (issues / ready / permanent), payslips per coach (`/api/payslips/?run=`), "Not paid in this period" with reasons; Recalculate (`payroll.prepare`, not once finalized); Finalize (`payroll.finalize`, READY only, permanent-action confirmation) | `payroll.view_all` |
+| `/finance/payroll/:runId/coach/:coachId` | The coach's payslip in that period (`?run=&coach=`): totals and lines (kind, description, covering for, rate rule, issue, amount) | `payroll.view_all` |
+| `/coach/payslips`, `/coach/payslips/:id` | The coach's own finalized payslips (the API decides; no coach id is sent) | `payroll.view_own` (COACH) |
+
+The browser does no payroll arithmetic. Gross, deductions, net, session counts and hours are
+displayed as the backend stored them. A missing rate shows as an issue, never as a normal
+payment. Every refusal is the backend's message: unresolved issues, a month that has not
+ended, a change since the calculation, or an already finalized period. No bank, EPF or SOCSO
+data is requested or shown. Code is in `src/payroll/`.
+
 ## Tests
 
-`npm test` runs 226 tests: the Competition Staff Portal suite (27, `src/competitions/test/`:
+`npm test` runs 252 tests: the Payroll suite (26, `src/payroll/test/`: periods with
+the backend statuses in the Finance menu, calculate after confirmation with the year and
+month sent to the service, backend refusal, error retry; period status, payslips requested
+with `?run=`, unpaid reasons, FINANCE_ADMIN without Finalize, missing-rate draft, super admin
+finalize with a permanent-action confirmation, backend refusal to finalize, recalculate,
+finalized read only, unknown period; coach payslip requested with `?run=&coach=`, totals and
+lines as calculated, missing rate flagged, no payslip; ADMIN, COACH, PARENT and STUDENT
+denied without any payroll request, old placeholder retired; coach "My payslips" without any
+id sent, detail without bank data, another coach's payslip not found, empty list, other roles
+denied), the Competition Staff Portal suite (27, `src/competitions/test/`:
 list with backend statuses, form version and counts, status filter sent to the API and kept
 in the URL, menu for ADMIN, access denied with no API call for FINANCE_ADMIN, COACH, PARENT
 and STUDENT on every page; overview counts and events without family data, adding an event,
@@ -695,11 +724,10 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 
 ## Known limitations
 
-* Staff payroll and report pages are placeholders until their phase (6I–6J); the operations
-  dashboard links to Django Admin for them meanwhile. Staff registration of a student on a
-  family's behalf stays in Django Admin (the API supports it; there is no web page yet). Coach payslips
-  (the backend's existing `payroll.view_own`) are not shown in the Coach Portal; payroll
-  screens are Phase 6I.
+* The staff reports page is a placeholder until its phase (6J). Staff registration of a
+  student on a family's behalf stays in Django Admin (the API supports it; there is no web
+  page yet). Payroll rates and adjustments are edited in Django Admin; there is no payslip PDF,
+  payout record or payroll reversal.
   Notifications and recent activity are marked "not available yet": the backend has no
   endpoints for them.
 * The Django print pages (`/receipts/<id>/`, `/invoices/<id>/`) need a Django session. The

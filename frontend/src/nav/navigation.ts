@@ -43,9 +43,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { id: "staff-competitions", portal: "staff", label: "Competitions", path: "/staff/competitions",
     capabilities: ["competition.registrations.view_all", "competition.manage"], phase: "6G",
     description: "Competitions, events, registration forms, participants and results." },
-  { id: "staff-payroll", portal: "staff", label: "Payroll", path: "/staff/payroll",
-    capabilities: ["payroll.view_all"], phase: "6I",
-    description: "Coach rates, payroll periods and payslips." },
   { id: "staff-reports", portal: "staff", label: "Reports", path: "/staff/reports",
     capabilities: ["reports.students", "reports.attendance", "reports.competitions", "reports.finance", "reports.payroll"],
     phase: "6J", description: "Reports and exports." },
@@ -62,12 +59,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
     capabilities: ["finance.proofs.review"], phase: "6F", description: "Review parents' payment proofs." },
   { id: "finance-receipts", portal: "finance", label: "Receipts", path: "/finance/receipts",
     capabilities: ["finance.view_all"], phase: "6F", description: "Official receipts." },
+  // Payroll (Phase 6H): FINANCE_ADMIN calculates, only SUPER_ADMIN finalizes. ADMIN has no payroll
+  // capability. Coach rates and adjustments stay in Django Admin.
+  { id: "finance-payroll", portal: "finance", label: "Payroll", path: "/finance/payroll",
+    capabilities: ["payroll.view_all"], phase: "6H",
+    description: "Monthly payroll periods: calculate, review, finalize; coach payslips." },
   { id: "finance-payment-info", portal: "finance", label: "Payment information", path: "/finance/payment-info",
     capabilities: ["finance.payment_info.manage", "finance.view_all"], phase: "6F",
     description: "The academy's bank details, instructions and QR code." },
 
   // Coach (COACH, including authorized substitute sessions): the Coach Portal (Phase 6C).
-  // No finance, family, payroll or form-configuration pages here.
+  // No finance, family or form-configuration pages here; payroll is the coach's own finalized payslips only.
   { id: "coach-dashboard", portal: "coach", label: "Coach dashboard", path: "/coach/dashboard",
     capabilities: ["sessions.view_assigned"], phase: "6C",
     description: "Today's sessions, attendance to finish and the week ahead." },
@@ -80,6 +82,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { id: "coach-competitions", portal: "coach", label: "Competitions", path: "/coach/competitions",
     capabilities: ["competition.registrations.view_assigned"], phase: "6C",
     description: "Competition entries of the students you coach." },
+  { id: "coach-payslips", portal: "coach", label: "My payslips", path: "/coach/payslips",
+    capabilities: ["payroll.view_own"], phase: "6H",
+    description: "Your finalized monthly payslips." },
 
   // Parent (PARENT): the Parent Portal (Phase 6B)
   { id: "parent-overview", portal: "parent", label: "Overview", path: "/parent/dashboard",
@@ -145,6 +150,9 @@ export const SUB_ROUTES: readonly SubRoute[] = [
   { path: "/finance/payments/:paymentId", parent: "finance-payments" },
   { path: "/finance/payment-proofs/:proofId", parent: "finance-proofs" },
   { path: "/finance/receipts/:receiptId", parent: "finance-receipts" },
+  { path: "/finance/payroll/:runId", parent: "finance-payroll" },
+  { path: "/finance/payroll/:runId/coach/:coachId", parent: "finance-payroll" },
+  { path: "/coach/payslips/:payslipId", parent: "coach-payslips" },
   { path: "/staff/classes/:classId", parent: "staff-classes" },
   { path: "/staff/sessions/:sessionId", parent: "staff-sessions" },
   { path: "/staff/sessions/:sessionId/attendance", parent: "staff-attendance" },

@@ -3,7 +3,7 @@ import type { QueryValue } from "./client";
 import type {
   AcademyPaymentInfo, AttendanceMark, AttendanceSheet, CoachingSession, PaymentProof, RosterStudent,
   AttendanceRecord, AttendanceSummaryResponse, Charge, Competition, CompetitionRegistration, Family, Invoice, Me,
-  OwnStudent, Paginated, Payment, PayrollRunSummary, Receipt, StudentAttendanceResponse, StudentCompetitionEntry,
+  OwnStudent, Paginated, Payment, PayrollRun, PayrollRunSummary, Payslip, Receipt, StudentAttendanceResponse, StudentCompetitionEntry,
   StudentSelfProfile, StudentSession, TokenResponse, TrainingSession, StaffDashboard, StaffStudent, StaffStudentRow,
   StudentHistory, TrainingClass, Program, CoachRecord, AuditEntry, StudentEnrollment, StaffSessionSlot,
   FinanceDashboard, StaffInvoice, StaffPayment, StaffPaymentProof, Refund,
@@ -255,6 +255,21 @@ export function endpoints(api: ApiClient) {
       api.post<CompetitionResultRow>("/api/competition-results/", body),
     updateResult: (id: number, body: CompetitionResultInput) =>
       api.request<CompetitionResultRow>(`/api/competition-results/${id}/`, { method: "PATCH", body }),
+    /* Payroll (Phase 6H). Read-only views plus the two existing service endpoints; every amount,
+       rate, eligibility rule and lock is the backend's (apps/payroll/services.py). */
+    staffPayrollRuns: (query: { page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<PayrollRun>>("/api/payroll-runs/", query, signal),
+    payrollRun: (id: number | string, signal?: AbortSignal) =>
+      api.get<PayrollRun>(`/api/payroll-runs/${encodeURIComponent(id)}/`, undefined, signal),
+    /** Creates the month's period if needed and (re)calculates it; refused once finalized. */
+    calculatePayroll: (year: number, month: number) =>
+      api.post<PayrollRun>("/api/payroll-runs/calculate/", { year, month }),
+    /** SUPER_ADMIN only; locks the period permanently. */
+    finalizePayroll: (id: number) => api.post<PayrollRun>(`/api/payroll-runs/${id}/finalize/`),
+    payslips: (query: { run?: number; coach?: number; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<Payslip>>("/api/payslips/", query, signal),
+    payslip: (id: number | string, signal?: AbortSignal) =>
+      api.get<Payslip>(`/api/payslips/${encodeURIComponent(id)}/`, undefined, signal),
     /** Parent withdrawal while registration is open. Paid fees are not refunded. */
     withdraw: (id: number, reason: string) =>
       api.post<CompetitionRegistration>(`/api/competition-registrations/${id}/withdraw/`, { reason }),

@@ -1519,11 +1519,16 @@ class PayslipViewSet(ApiViewMixin, viewsets.ReadOnlyModelViewSet):
     capabilities = caps(read=(Cap.PAYROLL_VIEW_ALL, Cap.PAYROLL_VIEW_OWN))
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Payslip.objects.select_related("run", "coach").prefetch_related("lines")
-        if can(user, Cap.PAYROLL_VIEW_ALL):
-            return qs
-        coach = access.coach_of(user)
-        if coach is None:
-            return qs.none()
-        return qs.filter(coach=coach, run__status=PayrollRun.Status.FINALIZED)
+        user, params = self.request.user, self.request.query_params
+        qs = Payslip.objects.select_related("run", "coach").prefetch_related("lines__slot__replaces")
+        if not can(user, Cap.PAYROLL_VIEW_ALL):
+            coach = access.coach_of(user)
+            if coach is None:
+                return qs.none()
+            qs = qs.filter(coach=coach, run__status=PayrollRun.Status.FINALIZED)
+        # Narrowing filters (never widen the caller's scope).
+        if id_param(params, "run"):
+            qs = qs.filter(run_id=id_param(params, "run"))
+        if id_param(params, "coach"):
+            qs = qs.filter(coach_id=id_param(params, "coach"))
+        return qs.order_by("-run__year", "-run__month", "coach__full_name", "id")

@@ -274,7 +274,7 @@ describe("navigation and guards", () => {
     await screen.findByRole("heading", { name: "Finance dashboard", level: 1 });
     const section = screen.getByRole("complementary", { name: "Sidebar" }).querySelector("[data-portal='finance']") as HTMLElement;
     expect(within(section).getAllByRole("link").map((a) => a.textContent)).toEqual(
-      ["Finance dashboard", "Invoices", "Payments", "Payment proofs", "Receipts", "Payment information"]);
+      ["Finance dashboard", "Invoices", "Payments", "Payment proofs", "Receipts", "Payroll", "Payment information"]);
   });
 
   it("coach, parent and student are denied every finance page", async () => {

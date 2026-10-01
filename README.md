@@ -163,8 +163,9 @@ attendance monitoring with administrator corrections). Phase 6F adds the Finance
 refunds, academy payment information). Phase 6G adds the Competition Staff Portal
 (competitions, events, the registration form builder with versions, participants with
 server-side filters, entry confirmation / withdrawal / rejection through the existing
-services, and results). Payroll and report screens follow in 6I–6J; Django Admin stays
-available.
+services, and results). Phase 6H adds the Payroll Staff Portal (monthly periods, calculate,
+review payslips and unpaid sessions, super-admin finalize) and the coach's "My payslips".
+Report screens follow in 6J; Django Admin stays available.
 
 ```bash
 cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)

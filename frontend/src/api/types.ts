@@ -75,6 +75,59 @@ export interface PayrollRunSummary {
   issue_count: number;
 }
 
+/* ------------------------------------------------------------------ payroll (Phase 6H) */
+
+/** One coach assignment in the period that was not paid, and the backend's reason. */
+export interface PayrollExcluded {
+  slot: number;
+  session: number;
+  coach: string;
+  date: string;
+  class: string;
+  role: "REGULAR" | "SUBSTITUTE";
+  reason: string;
+}
+
+/** GET /api/payroll-runs/:id/ (read only; changes only through calculate / finalize). */
+export interface PayrollRun extends PayrollRunSummary {
+  calculated_at: string | null;
+  finalized_at: string | null;
+  excluded: PayrollExcluded[];
+  notes: string;
+}
+
+export type PayslipLineKind = "REGULAR_SESSION" | "SUBSTITUTE_SESSION" | "MONTHLY" | "ALLOWANCE" | "BONUS" | "DEDUCTION";
+
+/** One paid session (or adjustment), priced by the backend's payroll service. */
+export interface PayslipLine {
+  kind: PayslipLineKind;
+  description: string;
+  session: number | null;
+  slot: number | null;
+  original_coach: string | null;
+  rate: string;
+  rule: string;
+  issue: "" | "MISSING_RATE";
+  amount: string;
+}
+
+/** GET /api/payslips/ : staff see every payslip; a coach only their own finalized ones. */
+export interface Payslip {
+  id: number;
+  year: number;
+  month: number;
+  run_status: PayrollRunSummary["status"];
+  coach: number;
+  coach_name: string;
+  regular_sessions: number;
+  substitute_sessions: number;
+  hours: string;
+  gross_pay: string;
+  total_deductions: string;
+  net_pay: string;
+  lines: PayslipLine[];
+}
+
 /* ------------------------------------------------------------------ parent portal (Phase 6B) */
 
 export type StudentStatus = "ACTIVE" | "ON_LEAVE" | "SUSPENDED" | "WITHDRAWN" | "GRADUATED";

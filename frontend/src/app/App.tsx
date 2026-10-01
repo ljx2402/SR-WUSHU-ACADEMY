@@ -33,6 +33,8 @@ import { RegistrationFormBuilderPage } from "../competitions/pages/RegistrationF
 import { ResultsPage } from "../competitions/pages/ResultsPage";
 import { StaffCompetitionDetailPage } from "../competitions/pages/StaffCompetitionDetailPage";
 import { StaffCompetitionsPage } from "../competitions/pages/StaffCompetitionsPage";
+import { CoachPayslipDetailPage, CoachPayslipsPage } from "../payroll/pages/CoachPayslipPages";
+import { PayrollCoachPage, PayrollPage, PayrollRunPage } from "../payroll/pages/PayrollPages";
 import { FinanceDashboardPage } from "../finance/pages/FinanceDashboardPage";
 import { FinanceInvoiceDetailPage, FinanceInvoicesPage } from "../finance/pages/FinanceInvoicePages";
 import { FinancePaymentDetailPage, FinancePaymentsPage, RecordPaymentPage } from "../finance/pages/FinancePaymentPages";
@@ -75,6 +77,11 @@ const PAGES: Record<string, ReactNode> = {
   "/finance/payments/:paymentId": <FinancePaymentDetailPage />,
   "/finance/payment-proofs/:proofId": <FinanceProofDetailPage />,
   "/finance/receipts/:receiptId": <FinanceReceiptDetailPage />,
+  "finance-payroll": <PayrollPage />,
+  "/finance/payroll/:runId": <PayrollRunPage />,
+  "/finance/payroll/:runId/coach/:coachId": <PayrollCoachPage />,
+  "coach-payslips": <CoachPayslipsPage />,
+  "/coach/payslips/:payslipId": <CoachPayslipDetailPage />,
   "staff-dashboard": <StaffDashboardPage />,
   "staff-students": <StaffStudentsPage />,
   "staff-classes": <StaffClassesPage />,

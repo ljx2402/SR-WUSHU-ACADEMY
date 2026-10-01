@@ -224,6 +224,22 @@ In short:
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
 
+## Payroll Staff Portal (Phase 6H)
+
+No new capabilities. FINANCE_ADMIN prepares and calculates, and only SUPER_ADMIN finalizes,
+as the backend already enforced. ADMIN has no payroll capability.
+
+| Action | Needs | SUPER_ADMIN | ADMIN | FINANCE_ADMIN | COACH | PARENT | STUDENT |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Payroll periods, all payslips (`/finance/payroll`) | `payroll.view_all` | yes | 403 / denied | yes | 403 / denied | 403 / denied | 403 / denied |
+| Calculate / recalculate | `payroll.prepare` | yes | 403 | yes | 403 | 403 | 403 |
+| Finalize (permanent) | `payroll.finalize` | yes | 403 | **403** | 403 | 403 | 403 |
+| Own finalized payslips (`/coach/payslips`) | `payroll.view_own` | – (no coach portal) | – | – | own only; another's or a draft = 404 | 403 | 403 |
+| Coach rates, adjustments (Django Admin) | `payroll.rates.manage` / `payroll.prepare` | yes | – | yes | – | – | – |
+
+Verified by `apps/api/tests/test_payroll_staff.py` and a browser run with SUPER_ADMIN, ADMIN,
+FINANCE_ADMIN, two COACH accounts, PARENT and STUDENT.
+
 ## Competition Staff Portal (Phase 6G)
 
 No new capabilities. ADMIN is not treated as SUPER_ADMIN, and FINANCE_ADMIN is not a
