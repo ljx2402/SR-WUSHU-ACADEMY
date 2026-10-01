@@ -27,6 +27,12 @@ import { CoachAttendancePage } from "../coach/pages/CoachAttendancePage";
 import { CoachCompetitionsPage } from "../coach/pages/CoachCompetitionsPage";
 import { CoachDashboardPage } from "../coach/pages/CoachDashboardPage";
 import { CoachAttendanceIndexPage, CoachSessionDetailPage, CoachSessionsPage } from "../coach/pages/CoachSessionPages";
+import { EditCompetitionPage, NewCompetitionPage } from "../competitions/pages/CompetitionEditPage";
+import { ParticipantDetailPage, ParticipantsPage } from "../competitions/pages/ParticipantPages";
+import { RegistrationFormBuilderPage } from "../competitions/pages/RegistrationFormBuilderPage";
+import { ResultsPage } from "../competitions/pages/ResultsPage";
+import { StaffCompetitionDetailPage } from "../competitions/pages/StaffCompetitionDetailPage";
+import { StaffCompetitionsPage } from "../competitions/pages/StaffCompetitionsPage";
 import { FinanceDashboardPage } from "../finance/pages/FinanceDashboardPage";
 import { FinanceInvoiceDetailPage, FinanceInvoicesPage } from "../finance/pages/FinanceInvoicePages";
 import { FinancePaymentDetailPage, FinancePaymentsPage, RecordPaymentPage } from "../finance/pages/FinancePaymentPages";
@@ -76,6 +82,14 @@ const PAGES: Record<string, ReactNode> = {
   "staff-sessions": <StaffSessionsPage />,
   "staff-attendance": <StaffAttendancePage />,
   "/staff/students/:studentId": <StaffStudentDetailPage />,
+  "staff-competitions": <StaffCompetitionsPage />,
+  "/staff/competitions/new": <NewCompetitionPage />,
+  "/staff/competitions/:competitionId": <StaffCompetitionDetailPage />,
+  "/staff/competitions/:competitionId/edit": <EditCompetitionPage />,
+  "/staff/competitions/:competitionId/registration-form": <RegistrationFormBuilderPage />,
+  "/staff/competitions/:competitionId/participants": <ParticipantsPage />,
+  "/staff/competitions/:competitionId/participants/:registrationId": <ParticipantDetailPage />,
+  "/staff/competitions/:competitionId/results": <ResultsPage />,
   "/staff/classes/:classId": <StaffClassDetailPage />,
   "/staff/sessions/:sessionId": <StaffSessionDetailPage />,
   "/staff/sessions/:sessionId/attendance": <CoachAttendancePage portal="staff" />,

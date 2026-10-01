@@ -224,6 +224,23 @@ In short:
 * audit entries show identity and account numbers as `****1234`, medical notes as a length only,
   and never credentials.
 
+## Competition Staff Portal (Phase 6G)
+
+No new capabilities. ADMIN is not treated as SUPER_ADMIN, and FINANCE_ADMIN is not a
+competition administrator. Each column below follows from `ROLE_CAPABILITIES`:
+
+| Action | Needs | SUPER_ADMIN | ADMIN | FINANCE_ADMIN | COACH | PARENT | STUDENT |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Published competitions and events | `competition.view` | yes | yes | yes (API only, no menu) | yes | yes | yes (no fees) |
+| Draft competitions, create / edit, events | `competition.manage` | yes | yes | 403 / hidden | 403 / hidden | 403 / hidden | 403 / hidden |
+| Form working copy, publish / unpublish | `competition.manage` | yes | yes | 403 | 403 | 403 | 403 |
+| All registrations, summary, counts | `competition.registrations.view_all` | yes | yes | 403 | own athletes, no family data | own children | own entries |
+| Confirm / reject / withdraw any entry | `competition.registrations.manage` | yes | yes | 403 | 403 | withdraw own child (if allowed) | 403 |
+| Record / edit results | `competition.results.manage` | yes | yes | 403 | 403 | 403 | 403 |
+
+Verified by direct API calls per role (`apps/api/tests/test_competition_staff.py` and a
+browser run with SUPER_ADMIN, ADMIN, FINANCE_ADMIN, COACH, PARENT and STUDENT tokens).
+
 ## Finance Staff Portal (Phase 6F)
 
 No new capabilities. The finance menu shows each page only with its existing capability and

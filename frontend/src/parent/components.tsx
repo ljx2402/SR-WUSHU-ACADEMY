@@ -18,6 +18,7 @@ export const STUDENT_STATUS: Record<StudentStatus, { label: string; tone: Tone }
 export const StudentStatusBadge = ({ status }: { status: string }) => <StatusBadge map={STUDENT_STATUS} value={status} />;
 
 export const COMPETITION_STATUS: Record<string, { label: string; tone: Tone }> = {
+  DRAFT: { label: "Draft (staff only)", tone: "neutral" },
   OPEN: { label: "Open for registration", tone: "success" },
   CLOSED: { label: "Registration closed", tone: "neutral" },
   COMPLETED: { label: "Completed", tone: "neutral" },

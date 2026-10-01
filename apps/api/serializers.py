@@ -635,7 +635,21 @@ class CompetitionSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         if _competition_student_view(self.context):
             data.pop("registration_form", None)  # a student cannot register (parents do); events drop fees
+        # Entry counts (annotated by the viewset) only for staff who see every registration.
+        request = self.context.get("request")
+        if request is not None and can(request.user, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL) \
+                and hasattr(instance, "entry_count"):
+            data["entry_count"] = instance.entry_count
+            data["pending_count"] = instance.pending_count
         return data
+
+    def validate(self, attrs):
+        # The model's own rule (Competition.clean), which the admin applies too.
+        start = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        end = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        if start and end and end < start:
+            raise serializers.ValidationError({"end_date": "End date cannot be before start date."})
+        return attrs
 
     def get_is_open(self, obj):
         return obj.is_open_for_registration()

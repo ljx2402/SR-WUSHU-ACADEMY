@@ -7,6 +7,9 @@ import type {
   StudentSelfProfile, StudentSession, TokenResponse, TrainingSession, StaffDashboard, StaffStudent, StaffStudentRow,
   StudentHistory, TrainingClass, Program, CoachRecord, AuditEntry, StudentEnrollment, StaffSessionSlot,
   FinanceDashboard, StaffInvoice, StaffPayment, StaffPaymentProof, Refund,
+  StaffCompetition, CompetitionInput, CompetitionEvent, CompetitionEventInput, CompetitionSummary,
+  RegistrationFormFieldRow, RegistrationFormFieldInput, StaffRegistrationForm, CompetitionResultRow,
+  CompetitionResultInput,
 } from "./types";
 
 type Query = Record<string, QueryValue>;
@@ -212,6 +215,46 @@ export function endpoints(api: ApiClient) {
     /** The uploaded file (permission-checked download). */
     paymentProofFile: (id: number) =>
       api.request<Blob>(`/api/payment-proofs/${id}/file/`, { responseType: "blob", timeoutMs: 60_000 }),
+    /* Competition staff portal (Phase 6G). Thin wrappers over the existing competition endpoints;
+       every rule (eligibility, payment before confirmation, results only for confirmed paid entries,
+       frozen form versions) is the backend's. */
+    staffCompetitions: (query: { status?: string; search?: string; page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<StaffCompetition>>("/api/competitions/", query, signal),
+    staffCompetition: (id: number | string, signal?: AbortSignal) =>
+      api.get<StaffCompetition>(`/api/competitions/${encodeURIComponent(id)}/`, undefined, signal),
+    createCompetition: (body: CompetitionInput) => api.post<StaffCompetition>("/api/competitions/", body),
+    updateCompetition: (id: number, body: Partial<CompetitionInput>) =>
+      api.request<StaffCompetition>(`/api/competitions/${id}/`, { method: "PATCH", body }),
+    competitionSummary: (id: number | string, signal?: AbortSignal) =>
+      api.get<CompetitionSummary>(`/api/competitions/${encodeURIComponent(id)}/summary/`, undefined, signal),
+    createCompetitionEvent: (body: CompetitionEventInput) => api.post<CompetitionEvent>("/api/competition-events/", body),
+    updateCompetitionEvent: (id: number, body: Partial<CompetitionEventInput>) =>
+      api.request<CompetitionEvent>(`/api/competition-events/${id}/`, { method: "PATCH", body }),
+    registrationForm: (id: number | string, signal?: AbortSignal) =>
+      api.get<StaffRegistrationForm>(`/api/competitions/${encodeURIComponent(id)}/form/`, undefined, signal),
+    publishForm: (id: number) => api.post<StaffRegistrationForm>(`/api/competitions/${id}/publish-form/`),
+    unpublishForm: (id: number) => api.post<StaffRegistrationForm>(`/api/competitions/${id}/unpublish-form/`),
+    reorderForm: (id: number, keys: string[]) =>
+      api.post<StaffRegistrationForm>(`/api/competitions/${id}/reorder-form/`, { keys }),
+    createFormField: (body: RegistrationFormFieldInput) =>
+      api.post<RegistrationFormFieldRow>("/api/competition-form-fields/", body),
+    updateFormField: (id: number, body: Partial<RegistrationFormFieldInput>) =>
+      api.request<RegistrationFormFieldRow>(`/api/competition-form-fields/${id}/`, { method: "PATCH", body }),
+    deleteFormField: (id: number) => api.request<void>(`/api/competition-form-fields/${id}/`, { method: "DELETE" }),
+    staffRegistrations: (query: { competition?: number; event?: number; student?: number; status?: string;
+                                  payment?: string; result?: string; search?: string; start?: string; end?: string;
+                                  page?: number }, signal?: AbortSignal) =>
+      api.get<Paginated<CompetitionRegistration>>("/api/competition-registrations/", query, signal),
+    staffRegistration: (id: number | string, signal?: AbortSignal) =>
+      api.get<CompetitionRegistration>(`/api/competition-registrations/${encodeURIComponent(id)}/`, undefined, signal),
+    /** Never confirms an unpaid entry (the backend refuses). */
+    confirmRegistration: (id: number) => api.post<CompetitionRegistration>(`/api/competition-registrations/${id}/confirm/`),
+    rejectRegistration: (id: number, reason: string) =>
+      api.post<CompetitionRegistration>(`/api/competition-registrations/${id}/reject/`, { reason }),
+    createResult: (body: CompetitionResultInput & { registration: number }) =>
+      api.post<CompetitionResultRow>("/api/competition-results/", body),
+    updateResult: (id: number, body: CompetitionResultInput) =>
+      api.request<CompetitionResultRow>(`/api/competition-results/${id}/`, { method: "PATCH", body }),
     /** Parent withdrawal while registration is open. Paid fees are not refunded. */
     withdraw: (id: number, reason: string) =>
       api.post<CompetitionRegistration>(`/api/competition-registrations/${id}/withdraw/`, { reason }),

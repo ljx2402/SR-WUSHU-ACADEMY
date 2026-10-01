@@ -160,8 +160,11 @@ Phase 6E adds the Staff Core Operations Portal (operations dashboard with alerts
 classes, timetable, sessions with cancel / reschedule / coach and substitute changes, and
 attendance monitoring with administrator corrections). Phase 6F adds the Finance Staff Portal
 (finance dashboard, invoices, manual payments with receipts, payment-proof review, exceptional
-refunds, academy payment information). Payroll, competition administration and report screens
-follow in 6G–6J; Django Admin stays available.
+refunds, academy payment information). Phase 6G adds the Competition Staff Portal
+(competitions, events, the registration form builder with versions, participants with
+server-side filters, entry confirmation / withdrawal / rejection through the existing
+services, and results). Payroll and report screens follow in 6I–6J; Django Admin stays
+available.
 
 ```bash
 cd frontend && npm ci && npm run dev      # http://localhost:5173/app/ (proxies /api to :8000)

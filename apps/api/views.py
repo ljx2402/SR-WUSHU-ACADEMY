@@ -1212,13 +1212,59 @@ class CompetitionViewSet(ApiViewMixin, NoDestroyModelViewSet):
     serializer_class = s.CompetitionSerializer
     capabilities = caps(read=(Cap.COMPETITION_VIEW, Cap.COMPETITION_MANAGE), write=Cap.COMPETITION_MANAGE,
                         form=Cap.COMPETITION_MANAGE, publish_form=Cap.COMPETITION_MANAGE,
-                        unpublish_form=Cap.COMPETITION_MANAGE, reorder_form=Cap.COMPETITION_MANAGE)
+                        unpublish_form=Cap.COMPETITION_MANAGE, reorder_form=Cap.COMPETITION_MANAGE,
+                        summary=Cap.COMPETITION_REGISTRATIONS_VIEW_ALL)
 
     def get_queryset(self):
+        user, params = self.request.user, self.request.query_params
         qs = Competition.objects.prefetch_related("events")
-        if not can(self.request.user, Cap.COMPETITION_MANAGE):
+        if not can(user, Cap.COMPETITION_MANAGE):
             qs = qs.exclude(status=Competition.Status.DRAFT)
-        return qs
+        if can(user, Cap.COMPETITION_REGISTRATIONS_VIEW_ALL):
+            # Entry counts for the staff portal (the serializer shows them only to these viewers).
+            active = ~Q(events__registrations__status__in=CompetitionRegistration.INACTIVE)
+            qs = qs.annotate(
+                entry_count=Count("events__registrations", filter=active, distinct=True),
+                pending_count=Count("events__registrations", distinct=True,
+                                    filter=Q(events__registrations__status=CompetitionRegistration.Status.PENDING)),
+            )
+        # Narrowing filters (never widen the caller's scope).
+        statuses = [v for v in (params.get("status") or "").split(",") if v]
+        if statuses:
+            if any(v not in Competition.Status.values for v in statuses):
+                raise ValidationError({"status": "Unknown competition status."})
+            qs = qs.filter(status__in=statuses)
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(organiser__icontains=search) | Q(venue__icontains=search))
+        return qs.order_by("-start_date", "id")
+
+    @action(detail=True, methods=["get"])
+    def summary(self, request, pk=None):
+        """Staff counts for one competition, computed from its registrations
+        (entry status, fee status, results). No family or form data."""
+        competition = self.get_object()
+        regs = CompetitionRegistration.objects.filter(event__competition=competition)
+        by_status = dict(regs.values_list("status").annotate(n=Count("id")))
+        active = regs.exclude(status__in=CompetitionRegistration.INACTIVE)
+        events = []
+        for event in competition.events.all():
+            event_regs = active.filter(event=event)
+            events.append({"id": event.id, "name": event.name, "entries": event_regs.count(),
+                           "max_entries": event.max_entries,
+                           "confirmed": event_regs.filter(status=CompetitionRegistration.Status.CONFIRMED).count()})
+        confirmed = regs.filter(status=CompetitionRegistration.Status.CONFIRMED)
+        return Response({
+            "registrations": {value: by_status.get(value, 0) for value in CompetitionRegistration.Status.values},
+            "fees": {
+                "paid": active.filter(charge__status=Charge.Status.PAID).count(),
+                "awaiting_payment": active.filter(charge__status__in=(Charge.Status.UNPAID, Charge.Status.PARTIAL)).count(),
+                "free": active.filter(charge__isnull=True).count(),
+            },
+            "results": {"recorded": CompetitionResult.objects.filter(registration__event__competition=competition).count(),
+                        "confirmed_without_result": confirmed.filter(result__isnull=True).count()},
+            "events": events,
+        })
 
     def _form_payload(self, competition):
         fields = competition.form_fields.order_by("order", "id")
@@ -1325,18 +1371,46 @@ class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins
         create=(Cap.COMPETITION_REGISTRATIONS_MANAGE, Cap.COMPETITION_REGISTER_OWN_CHILDREN),
         withdraw=(Cap.COMPETITION_REGISTRATIONS_MANAGE, Cap.COMPETITION_REGISTER_OWN_CHILDREN),
         confirm=Cap.COMPETITION_REGISTRATIONS_MANAGE,
+        reject=Cap.COMPETITION_REGISTRATIONS_MANAGE,
     )
 
+    PAYMENT_FILTERS = {
+        "PAID": Q(charge__status=Charge.Status.PAID),
+        "UNPAID": Q(charge__status__in=(Charge.Status.UNPAID, Charge.Status.PARTIAL)),
+        "FREE": Q(charge__isnull=True),
+    }
+
     def get_queryset(self):
-        user = self.request.user
+        user, params = self.request.user, self.request.query_params
         qs = CompetitionRegistration.objects.select_related("event__competition", "student", "charge", "result")
         if self.action == "withdraw" and not can(user, Cap.COMPETITION_REGISTRATIONS_MANAGE):
             qs = qs.filter(student__in=access.children_for(user))
         else:
             qs = qs.filter(registration_scope(user, "student"))
-        if id_param(self.request.query_params, "competition"):
-            qs = qs.filter(event__competition_id=id_param(self.request.query_params, "competition"))
-        return qs
+        if id_param(params, "competition"):
+            qs = qs.filter(event__competition_id=id_param(params, "competition"))
+        # Narrowing filters for the staff participant list (never widen the caller's scope).
+        if id_param(params, "event"):
+            qs = qs.filter(event_id=id_param(params, "event"))
+        if id_param(params, "student"):
+            qs = qs.filter(student_id=id_param(params, "student"))
+        statuses = [v for v in (params.get("status") or "").split(",") if v]
+        if statuses:
+            if any(v not in CompetitionRegistration.Status.values for v in statuses):
+                raise ValidationError({"status": "Unknown registration status."})
+            qs = qs.filter(status__in=statuses)
+        payment = params.get("payment")
+        if payment:
+            if payment not in self.PAYMENT_FILTERS:
+                raise ValidationError({"payment": "Use PAID, UNPAID or FREE."})
+            qs = qs.filter(self.PAYMENT_FILTERS[payment])
+        if params.get("result") in ("yes", "no"):
+            qs = qs.filter(result__isnull=params["result"] == "no")
+        qs = date_range(qs, params, "registered_at__date")
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(student__full_name__icontains=search) | Q(student__student_no__icontains=search))
+        return qs.order_by("event__name", "student__full_name", "id")
 
     def create(self, request, *args, **kwargs):
         manager = can(request.user, Cap.COMPETITION_REGISTRATIONS_MANAGE)
@@ -1374,6 +1448,17 @@ class CompetitionRegistrationViewSet(ApiViewMixin, mixins.ListModelMixin, mixins
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         registration = competition_services.confirm(self.get_object(), request.user)
+        return Response(self.get_serializer(registration).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        """Staff rejection: the existing withdrawal service with the REJECTED status
+        (unpaid invoice voided, paid fees not refunded), with a required reason."""
+        reason = (request.data.get("reason") or "").strip()
+        if not reason:
+            raise ValidationError({"reason": "A reason is required to reject a registration."})
+        registration = competition_services.withdraw(self.get_object(), request.user, reason,
+                                                     CompetitionRegistration.Status.REJECTED)
         return Response(self.get_serializer(registration).data)
 
 

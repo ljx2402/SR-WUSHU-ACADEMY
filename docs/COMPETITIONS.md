@@ -156,11 +156,74 @@ API (no update route), and answers cannot be rewritten at all.
   reorder, deactivate or delete custom fields), a read-only preview of the working copy and of
   the published form, and the actions **Publish registration form** /
   **Unpublish registration form**. A registration's admin page shows its submitted answers
-  (escaped). The full staff competition screens come in a later phase.
+  (escaped). The staff screens are in the web app since Phase 6G (below).
 
 Every change (fields, publish, unpublish, reorder, registrations) is audited.
 
 Tests: `apps/api/tests/test_registration_forms.py` (16 tests).
+
+## Staff Competition Portal (Phase 6G)
+
+The web app's **Competitions** section (`/app/staff/competitions`) gives ADMIN and SUPER_ADMIN
+the Django admin's competition work in the browser. It adds no business flow: every write
+goes to the endpoints above, which call `competitions.services` and `registration_forms`.
+
+| Page | Needs | What it does (through) |
+| --- | --- | --- |
+| Competitions list | `competition.registrations.view_all` or `competition.manage` | Search, filter by the backend's statuses (DRAFT, OPEN, CLOSED, COMPLETED, CANCELLED), form version, entries and entries awaiting payment |
+| Competition overview | same | Details, entry counts (`/summary/`), events; add / edit events (`competition.manage`) |
+| New / edit competition | `competition.manage` | The existing serializer fields; the status is the competition's own field, as in the admin |
+| Registration form | `competition.manage` | Working copy (add, edit, reorder, deactivate, remove fields of the 9 existing types), preview, published version, publish / unpublish |
+| Participants, participant | `competition.registrations.view_all` | Server-side filters and pagination; entry status, fee and fee status, invoice, payment proofs (with `finance.proofs.review`), form version and answers as submitted, result; confirm / withdraw / reject (`competition.registrations.manage`) |
+| Results | `competition.registrations.view_all` (record / edit: `competition.results.manage`) | Confirmed entries only; record or edit placing, medal, score and staff remarks |
+
+The backend additions are:
+
+* Filters on `GET /api/competition-registrations/`. These are `event`, `student`, `status`
+  (one or more, comma separated) and `payment`. `payment` takes `PAID`, `UNPAID` (charge
+  unpaid or partially paid) or `FREE`. The other filters are `result=yes|no`, `start` / `end`
+  (registration date) and `search` (student name or number). Results are ordered by event
+  and student and paginated (50).
+  The filters only narrow the caller's existing scope; unknown values are 400.
+* `?status=` and `?search=` (name, organiser, venue) on `GET /api/competitions/`.
+* `GET /api/competitions/:id/summary/` (`competition.registrations.view_all`): counts per
+  registration status, fee state (paid / awaiting payment / free) and results, and entries per
+  event. It carries no names, answers or amounts. Staff with that capability also get
+  `entry_count` and `pending_count` on each competition; other roles never receive them.
+* `POST /api/competition-registrations/:id/reject/` (`competition.registrations.manage`):
+  the admin's "Reject" action. It calls the same `services.withdraw` with the REJECTED
+  status, so an unpaid invoice is voided and a paid fee is not refunded. A reason is required
+  and recorded in the audit log.
+* The competition serializer now refuses an end date before the start date (the model's own
+  `clean` rule, which the admin already applied).
+
+Rules the portal keeps:
+
+* **Payment is finance's.** The portal shows the fee, its status, the invoice and any
+  payment proofs. It never marks anything paid. Payments are recorded in the Finance
+  portal, and paying the invoice confirms the entry automatically. "Confirm entry" is the
+  existing manual confirmation, and the backend refuses it for an unpaid entry.
+* **Withdrawal and rejection** go through `services.withdraw`. Staff must give a reason in the
+  web app (the API's `withdraw` keeps its optional reason). There is no automatic refund. An
+  entry with a result cannot be withdrawn.
+* **Results** are recorded only for CONFIRMED, paid entries (`services.record_result`, the
+  model and the database trigger). The results page lists only confirmed entries, and the
+  backend refuses the rest. Results are never deleted.
+* **Form versions**: a published version is frozen. Editing a field changes the working copy
+  only, and a field's key never changes. Publishing creates the next version. A registration
+  shows the version and the labels and answers it was submitted with (tested: v2 answers stay
+  "T-shirt size" after "Jersey size" is published as v3).
+* **Staff remarks** on a result are shown to staff. The Student Portal and the student API never
+  show them (unchanged). The parents' registrations API still returns them as before; the
+  Parent Portal does not display them.
+
+FINANCE_ADMIN holds only `competition.view`: no Competitions menu, and 403 on registrations,
+summary, form and results (it sees competition fees through finance). COACH, PARENT and
+STUDENT get "access denied" in the web app and 403 / 404 from the API.
+
+Tests: `apps/api/tests/test_competition_staff.py` (20 tests: filters, scope never widened,
+historical versions, reject / withdraw / confirm rules, results, summary and counts per role,
+create / edit validation, IDOR on registrations, results, draft competitions and form fields).
 
 ## Student view (Phase 6D)
 

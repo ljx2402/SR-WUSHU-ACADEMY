@@ -347,10 +347,98 @@ export interface CompetitionRegistration {
   fee: string | null;
   fee_status: Charge["status"] | null;
   invoice: { id: number; number: string; balance_due: string } | null;
-  result: { placing: number | null; medal: string; score: string | null; remarks: string } | null;
+  result: { id: number; placing: number | null; medal: string; score: string | null; remarks?: string } | null;
   form_version: number | null;
   /** The family's own answers (not returned to coaches). */
   form_responses?: FormAnswer[];
+}
+
+/* ------------------------------------------------------------------ competition staff portal (Phase 6G) */
+
+export type CompetitionStatus = Competition["status"];
+export type RegistrationStatus = CompetitionRegistration["status"];
+
+/** GET /api/competitions/ as staff who see every registration receive it (entry counts added). */
+export interface StaffCompetition extends Competition {
+  entry_count?: number;
+  pending_count?: number;
+}
+
+/** The editable fields of a competition (the backend's CompetitionSerializer). */
+export interface CompetitionInput {
+  name: string;
+  organiser: string;
+  venue: string;
+  start_date: string;
+  end_date: string;
+  registration_deadline: string;
+  status: CompetitionStatus;
+  allow_parent_registration: boolean;
+  allow_parent_withdrawal: boolean;
+  max_events_per_student: number | null;
+  age_reference_date: string | null;
+  description: string;
+  rules: string;
+}
+
+export type CompetitionEventInput = Omit<CompetitionEvent, "id">;
+
+/** GET /api/competitions/:id/summary/ : counts computed from the registrations. */
+export interface CompetitionSummary {
+  registrations: Record<RegistrationStatus, number>;
+  fees: { paid: number; awaiting_payment: number; free: number };
+  results: { recorded: number; confirmed_without_result: number };
+  events: { id: number; name: string; entries: number; max_entries: number | null; confirmed: number }[];
+}
+
+/** A custom question of the staff working copy (/api/competition-form-fields/). */
+export interface RegistrationFormFieldRow {
+  id: number;
+  competition: number;
+  key: string;
+  label: string;
+  field_type: FormFieldType;
+  required: boolean;
+  help_text: string;
+  placeholder: string;
+  options: string[];
+  max_length: number | null;
+  min_value: string | null;
+  max_value: string | null;
+  order: number;
+  is_active: boolean;
+}
+
+export type RegistrationFormFieldInput = Omit<RegistrationFormFieldRow, "id" | "order">;
+
+/** GET /api/competitions/:id/form/ : the working copy, its preview and the published version. */
+export interface StaffRegistrationForm {
+  status: "DRAFT" | "PUBLISHED";
+  version: number;
+  published_at: string | null;
+  published_fields: FormFieldDefinition[];
+  fields: RegistrationFormFieldRow[];
+  preview: FormFieldDefinition[];
+  has_unpublished_changes: boolean;
+}
+
+/** /api/competition-results/ */
+export interface CompetitionResultRow {
+  id: number;
+  registration: number;
+  student_name: string;
+  event_name: string;
+  placing: number | null;
+  medal: "GOLD" | "SILVER" | "BRONZE" | "NONE" | "";
+  score: string | null;
+  remarks?: string;
+}
+
+export interface CompetitionResultInput {
+  placing: number | null;
+  medal: string;
+  score: string | null;
+  remarks: string;
 }
 
 /* ------------------------------------------------------------------ finance staff portal (Phase 6F) */

@@ -8,10 +8,10 @@ to *show*, the API decides what is *allowed*.
 Phase 6A delivered the foundation: sign-in, the application shell, navigation, the design
 system, the API client, route protection and a dashboard built from real API data. Phase 6B
 added the **Parent Portal**, Phase 6C the **Coach Portal**, Phase 6D the **Student
-Portal**, Phase 6E the **Staff Core Operations Portal** and Phase 6F the **Finance Staff
-Portal** (see below). The remaining staff pages (competitions, payroll, reports) are built in
-later phases (6G–6J); until then each of their pages exists, is protected, and says "This page is not
-available yet" (no invented data).
+Portal**, Phase 6E the **Staff Core Operations Portal**, Phase 6F the **Finance Staff
+Portal** and Phase 6G the **Competition Staff Portal** (see below). The remaining staff pages
+(payroll, reports) are built in later phases (6I–6J). Until then each of their pages exists, is
+protected, and says "This page is not available yet" (no invented data).
 
 ## Technology (and why)
 
@@ -591,9 +591,44 @@ no payment is linked and the invoice is open; "Rejected" with the reason; never 
 proof. The receipt document component and the authenticated download helper are shared with
 the Parent Portal.
 
+## Competition Staff Portal (Phase 6G)
+
+The staff menu's **Competitions** item, for `competition.registrations.view_all` or
+`competition.manage`, meaning ADMIN and SUPER_ADMIN. FINANCE_ADMIN, coaches, parents and
+students get "access denied", and 403 or 404 from the API. Inside a competition, a sub-menu
+(Overview, Participants, Registration form, Results) shows only the pages the user's
+capabilities allow. Each page is also guarded by its route.
+
+| Route | Page | Capability |
+| --- | --- | --- |
+| `/staff/competitions` | List with search and the backend's statuses; entries and entries awaiting payment | `competition.registrations.view_all` or `competition.manage` |
+| `/staff/competitions/new`, `/:id/edit` | Competition fields (existing endpoint) | `competition.manage` |
+| `/staff/competitions/:id` | Details, entry counts, events (add / edit with `competition.manage`) | as the list |
+| `/staff/competitions/:id/registration-form` | Form builder: working copy, preview, published version, publish / unpublish, reorder, deactivate, remove | `competition.manage` |
+| `/staff/competitions/:id/participants` | Server-side filters (student, event, status, fee, result, dates) and "Load more" pagination | `competition.registrations.view_all` |
+| `/staff/competitions/:id/participants/:registrationId` | Entry, fee and invoice (read only), payment proofs (with `finance.proofs.review`), answers as submitted with their form version, result; confirm / withdraw / reject with a reason (`competition.registrations.manage`) | `competition.registrations.view_all` |
+| `/staff/competitions/:id/results` | Confirmed entries; record / edit results (`competition.results.manage`) | `competition.registrations.view_all` |
+
+No page marks a payment, refunds, or decides eligibility. Every refusal shows the backend's
+message: an unpaid confirmation, a result for an unconfirmed entry, a forbidden form question,
+or an end date before the start. The form builder works on phones: field cards with large
+buttons instead of drag and drop, and the dialog fits 390 px. Code is in `src/competitions/`.
+
 ## Tests
 
-`npm test` runs 199 tests: the Finance Staff Portal suite (24, `src/finance/test/`: dashboard
+`npm test` runs 226 tests: the Competition Staff Portal suite (27, `src/competitions/test/`:
+list with backend statuses, form version and counts, status filter sent to the API and kept
+in the URL, menu for ADMIN, access denied with no API call for FINANCE_ADMIN, COACH, PARENT
+and STUDENT on every page; overview counts and events without family data, adding an event,
+summary error with retry, unknown competition; create with the backend's date error, edit with
+PATCH and the backend's statuses; form builder working copy, unpublished changes, preview and
+published version, adding a field of an existing type, publishing a new version, fixed key,
+reorder with every key, deactivate, remove after confirmation, the backend's refusal of a
+secret question, unpublish; participants filters sent to the API, a historical v1 entry
+showing its own labels and answers while the form is v2, invoice link and proofs without any
+payment control, confirm refused for an unpaid entry, reject only with a reason, paid
+withdrawal without refund, no withdrawal once a result exists, unknown entry; results listing
+only confirmed entries, recording and editing a result, the backend's refusal), the Finance Staff Portal suite (24, `src/finance/test/`: dashboard
 totals and proof queue without bank details, error retry; invoice list with search/status/
 overdue sent to the API, detail with lines, payments and receipts, no generic edit, ADMIN
 without issue/void and with the competition entry, void with a required reason and the
@@ -660,8 +695,9 @@ Tests use a fake `fetch` (`src/test/helpers.tsx`); requests to undeclared endpoi
 
 ## Known limitations
 
-* Staff competition, payroll and report pages are placeholders until their phase
-  (6G–6J); the operations dashboard links to Django Admin for them meanwhile. Coach payslips
+* Staff payroll and report pages are placeholders until their phase (6I–6J); the operations
+  dashboard links to Django Admin for them meanwhile. Staff registration of a student on a
+  family's behalf stays in Django Admin (the API supports it; there is no web page yet). Coach payslips
   (the backend's existing `payroll.view_own`) are not shown in the Coach Portal; payroll
   screens are Phase 6I.
   Notifications and recent activity are marked "not available yet": the backend has no
